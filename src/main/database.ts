@@ -655,7 +655,7 @@ export class Database {
     return Array.from(deckStats.values())
   }
 
-  getTimeSeriesStatistics(year: number, month: number, gameMode: string) {
+  getMonthlyTimeSeriesStatistics(year: number, month: number, gameMode: string) {
     const sql = `
       SELECT
         ROW_NUMBER() OVER (ORDER BY played_at) as sequence,

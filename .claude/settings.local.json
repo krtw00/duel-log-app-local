@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(git mv:*)",
+      "Bash(npm run build:*)",
+      "Bash(tree:*)",
+      "Bash(npm run electron:build:*)",
+      "Bash(magick:*)",
+      "Bash(npm install:*)",
+      "Bash(npx electron-icon-builder:*)",
+      "Bash(node generate-icons.js:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
