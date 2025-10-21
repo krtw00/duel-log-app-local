@@ -140,8 +140,63 @@
               <v-icon class="mr-2" color="primary">mdi-table</v-icon>
               <span class="text-h6">対戦履歴</span>
             </div>
-            <div class="d-flex align-center ga-2">
+
+            <div class="d-flex d-sm-none flex-column ga-2">
+              <v-btn
+                color="primary"
+                prepend-icon="mdi-plus"
+                block
+                size="large"
+                @click="openDuelDialog"
+              >
+                対戦記録を追加
+              </v-btn>
+              <div class="d-flex ga-2">
+                <v-btn
+                  color="secondary"
+                  prepend-icon="mdi-download"
+                  size="small"
+                  class="flex-grow-1"
+                  :loading="exportingCSV"
+                  :disabled="exportingCSV"
+                  @click="exportCSV"
+                >
+                  エクスポート
+                </v-btn>
+                <v-btn
+                  color="success"
+                  prepend-icon="mdi-upload"
+                  size="small"
+                  class="flex-grow-1"
+                  :loading="importingCSV"
+                  :disabled="importingCSV"
+                  @click="importCSV"
+                >
+                  インポート
+                </v-btn>
+              </div>
+            </div>
+
+            <div class="d-none d-sm-flex align-center ga-2">
               <v-spacer />
+              <v-btn
+                color="secondary"
+                prepend-icon="mdi-download"
+                :loading="exportingCSV"
+                :disabled="exportingCSV"
+                @click="exportCSV"
+              >
+                CSVエクスポート
+              </v-btn>
+              <v-btn
+                color="success"
+                prepend-icon="mdi-upload"
+                :loading="importingCSV"
+                :disabled="importingCSV"
+                @click="importCSV"
+              >
+                CSVインポート
+              </v-btn>
               <v-btn color="primary" prepend-icon="mdi-plus" @click="openDuelDialog">
                 対戦記録を追加
               </v-btn>
@@ -185,6 +240,8 @@ const duels = ref<Duel[]>([])
 
 const showDuelDialog = ref(false)
 const editingDuel = ref<Duel | null>(null)
+const exportingCSV = ref(false)
+const importingCSV = ref(false)
 
 const notificationStore = useNotificationStore()
 
@@ -348,6 +405,73 @@ const deleteDuel = async (id: number) => {
   } catch (error) {
     notificationStore.error('対戦記録の削除に失敗しました')
     console.error('Failed to delete duel:', error)
+  }
+}
+
+const exportCSV = async () => {
+  exportingCSV.value = true
+  try {
+    // 元のduel-log-appと同じカラムリストを使用
+    const columns = [
+      'deck_name',
+      'opponent_deck_name',
+      'result',
+      'coin',
+      'first_or_second',
+      'rank',
+      'rate_value',
+      'dc_value',
+      'notes',
+      'played_date'
+    ]
+
+    const result = await window.electronAPI.duels.exportCSV(
+      selectedYear.value,
+      selectedMonth.value,
+      currentMode.value,
+      columns
+    )
+
+    if (result.success) {
+      notificationStore.success('CSVファイルをエクスポートしました')
+    } else if (!result.cancelled) {
+      notificationStore.error(result.error || 'CSVエクスポートに失敗しました')
+    }
+  } catch (error) {
+    notificationStore.error('CSVエクスポートに失敗しました')
+    console.error('Failed to export CSV:', error)
+  } finally {
+    exportingCSV.value = false
+  }
+}
+
+const importCSV = async () => {
+  importingCSV.value = true
+  try {
+    const result = await window.electronAPI.duels.importCSV()
+
+    if (result.success) {
+      let message = `${result.count}件の対戦記録をインポートしました`
+      if (result.skipped && result.skipped > 0) {
+        message += `（${result.skipped}件スキップ）`
+      }
+      notificationStore.success(message)
+
+      // エラーがある場合は警告を表示
+      if (result.errors && result.errors.length > 0) {
+        console.warn('インポート時のエラー:', result.errors)
+        notificationStore.warning(`${result.errors.length}件の行でエラーが発生しました`)
+      }
+
+      await fetchDuels()
+    } else if (!result.cancelled) {
+      notificationStore.error(result.error || 'CSVインポートに失敗しました')
+    }
+  } catch (error) {
+    notificationStore.error('CSVインポートに失敗しました')
+    console.error('Failed to import CSV:', error)
+  } finally {
+    importingCSV.value = false
   }
 }
 

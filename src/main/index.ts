@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import { Database } from './database'
 
 let mainWindow: BrowserWindow | null = null
@@ -123,6 +124,61 @@ ipcMain.handle('duels:import', async (_, duelsData) => {
 
 ipcMain.handle('duels:export', async () => {
   return database.exportDuels()
+})
+
+// CSV Export
+ipcMain.handle('duels:exportCSV', async (_, year?: number, month?: number, gameMode?: string, columns?: string[]) => {
+  if (!mainWindow) return { success: false, error: 'ウィンドウが見つかりません' }
+
+  try {
+    // デフォルトファイル名を年月で生成
+    const yearStr = year || new Date().getFullYear()
+    const monthStr = month ? String(month).padStart(2, '0') : new Date().toISOString().split('T')[0].slice(5, 7)
+    const defaultFileName = `duels_${yearStr}${monthStr}.csv`
+
+    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'CSVファイルをエクスポート',
+      defaultPath: defaultFileName,
+      filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+    })
+
+    if (!filePath) {
+      return { success: false, cancelled: true }
+    }
+
+    const csvContent = database.exportDuelsToCSV(year, month, gameMode, columns)
+    fs.writeFileSync(filePath, csvContent, 'utf-8')
+
+    return { success: true, filePath }
+  } catch (error: any) {
+    console.error('CSV export error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// CSV Import
+ipcMain.handle('duels:importCSV', async () => {
+  if (!mainWindow) return { success: false, error: 'ウィンドウが見つかりません' }
+
+  try {
+    const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'CSVファイルをインポート',
+      filters: [{ name: 'CSV Files', extensions: ['csv'] }],
+      properties: ['openFile']
+    })
+
+    if (!filePaths || filePaths.length === 0) {
+      return { success: false, cancelled: true }
+    }
+
+    const csvContent = fs.readFileSync(filePaths[0], 'utf-8')
+    const result = database.importDuelsFromCSV(csvContent)
+
+    return { ...result, success: true }
+  } catch (error: any) {
+    console.error('CSV import error:', error)
+    return { success: false, error: error.message }
+  }
 })
 
 // Statistics operations

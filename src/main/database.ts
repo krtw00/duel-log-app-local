@@ -682,6 +682,375 @@ export class Database {
     return this.db.prepare(sql).all(gameMode, yearStr, monthStr)
   }
 
+  // CSV Export
+  exportDuelsToCSV(
+    year?: number,
+    month?: number,
+    gameMode?: string,
+    columns?: string[]
+  ) {
+    let duels = this.getAllDuels()
+
+    // フィルタリング適用
+    if (year) {
+      duels = duels.filter((duel: any) => {
+        const duelDate = new Date(duel.played_at)
+        return duelDate.getFullYear() === year
+      })
+    }
+
+    if (month) {
+      duels = duels.filter((duel: any) => {
+        const duelDate = new Date(duel.played_at)
+        return duelDate.getMonth() + 1 === month
+      })
+    }
+
+    if (gameMode) {
+      duels = duels.filter((duel: any) => duel.game_mode === gameMode)
+    }
+
+    if (duels.length === 0) {
+      return ''
+    }
+
+    // CSV header - 日本語ヘッダー（元のduel-log-appと同じ）
+    const headers = [
+      '使用デッキ',
+      '相手デッキ',
+      '結果',
+      'コイン',
+      '先攻/後攻',
+      'ゲームモード',
+      'ランク',
+      'レート',
+      'DC値',
+      '対戦日時',
+      'メモ'
+    ]
+
+    // Convert data to CSV rows
+    const rows = duels.map((duel: any) => {
+      // 日付フォーマット変換: ISO -> YYYY-MM-DD HH:MM:SS
+      let formattedDate = ''
+      if (duel.played_at) {
+        const date = new Date(duel.played_at)
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        const hours = String(date.getHours()).padStart(2, '0')
+        const minutes = String(date.getMinutes()).padStart(2, '0')
+        const seconds = String(date.getSeconds()).padStart(2, '0')
+        formattedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+      }
+
+      // ランク値をランク名に変換
+      const getRankName = (rankValue: number | null): string => {
+        if (!rankValue) return ''
+        if (rankValue === 1) return 'ブロンズ5'
+        if (rankValue === 2) return 'ブロンズ4'
+        if (rankValue === 3) return 'ブロンズ3'
+        if (rankValue === 4) return 'ブロンズ2'
+        if (rankValue === 5) return 'ブロンズ1'
+        if (rankValue === 6) return 'シルバー5'
+        if (rankValue === 7) return 'シルバー4'
+        if (rankValue === 8) return 'シルバー3'
+        if (rankValue === 9) return 'シルバー2'
+        if (rankValue === 10) return 'シルバー1'
+        if (rankValue === 11) return 'ゴールド5'
+        if (rankValue === 12) return 'ゴールド4'
+        if (rankValue === 13) return 'ゴールド3'
+        if (rankValue === 14) return 'ゴールド2'
+        if (rankValue === 15) return 'ゴールド1'
+        if (rankValue === 16) return 'プラチナ5'
+        if (rankValue === 17) return 'プラチナ4'
+        if (rankValue === 18) return 'プラチナ3'
+        if (rankValue === 19) return 'プラチナ2'
+        if (rankValue === 20) return 'プラチナ1'
+        if (rankValue === 21) return 'ダイヤモンド5'
+        if (rankValue === 22) return 'ダイヤモンド4'
+        if (rankValue === 23) return 'ダイヤモンド3'
+        if (rankValue === 24) return 'ダイヤモンド2'
+        if (rankValue === 25) return 'ダイヤモンド1'
+        if (rankValue === 26) return 'マスター5'
+        if (rankValue === 27) return 'マスター4'
+        if (rankValue === 28) return 'マスター3'
+        if (rankValue === 29) return 'マスター2'
+        if (rankValue === 30) return 'マスター1'
+        return String(rankValue)
+      }
+
+      return [
+        this.escapeCsvField(duel.player_deck_name || ''),
+        this.escapeCsvField(duel.opponent_deck_name || ''),
+        duel.result === 'win' ? '勝利' : '敗北',
+        duel.coin_result === 'win' ? '表' : '裏',
+        duel.turn_order === 'first' ? '先攻' : '後攻',
+        duel.game_mode || '',
+        getRankName(duel.rank_value),
+        duel.rate_value || '',
+        duel.dc_value || '',
+        formattedDate,
+        this.escapeCsvField(duel.notes || '')
+      ].join(',')
+    })
+
+    // UTF-8 BOMを追加
+    const BOM = '\uFEFF'
+    return BOM + [headers.join(','), ...rows].join('\n')
+  }
+
+  // CSV Import
+  importDuelsFromCSV(csvContent: string) {
+    // UTF-8 BOMを除去
+    if (csvContent.startsWith('\uFEFF')) {
+      csvContent = csvContent.substring(1)
+    }
+
+    const lines = csvContent.split('\n').filter(line => line.trim())
+
+    if (lines.length < 2) {
+      throw new Error('CSVファイルが空です')
+    }
+
+    const header = this.parseCsvLine(lines[0])
+    const dataLines = lines.slice(1)
+    const duels = []
+    let createdCount = 0
+    let skippedCount = 0
+    const errors: string[] = []
+
+    // ヘッダーから列のインデックスを取得
+    const getColumnIndex = (columnName: string): number => {
+      return header.indexOf(columnName)
+    }
+
+    const deckNameIdx = getColumnIndex('使用デッキ')
+    const opponentDeckNameIdx = getColumnIndex('相手デッキ')
+    const resultIdx = getColumnIndex('結果')
+    const coinIdx = getColumnIndex('コイン')
+    const turnOrderIdx = getColumnIndex('先攻/後攻')
+    const gameModeIdx = getColumnIndex('ゲームモード')
+    const rankIdx = getColumnIndex('ランク')
+    const rateIdx = getColumnIndex('レート')
+    const dcIdx = getColumnIndex('DC値')
+    const playedAtIdx = getColumnIndex('対戦日時')
+    const notesIdx = getColumnIndex('メモ')
+
+    // ランク名からランク値への変換
+    const getRankValue = (rankName: string): number | null => {
+      if (!rankName) return null
+
+      const rankMap: { [key: string]: number } = {
+        'ブロンズ5': 1, 'ブロンズ4': 2, 'ブロンズ3': 3, 'ブロンズ2': 4, 'ブロンズ1': 5,
+        'シルバー5': 6, 'シルバー4': 7, 'シルバー3': 8, 'シルバー2': 9, 'シルバー1': 10,
+        'ゴールド5': 11, 'ゴールド4': 12, 'ゴールド3': 13, 'ゴールド2': 14, 'ゴールド1': 15,
+        'プラチナ5': 16, 'プラチナ4': 17, 'プラチナ3': 18, 'プラチナ2': 19, 'プラチナ1': 20,
+        'ダイヤモンド5': 21, 'ダイヤモンド4': 22, 'ダイヤモンド3': 23, 'ダイヤモンド2': 24, 'ダイヤモンド1': 25,
+        'マスター5': 26, 'マスター4': 27, 'マスター3': 28, 'マスター2': 29, 'マスター1': 30
+      }
+
+      if (rankMap[rankName]) {
+        return rankMap[rankName]
+      }
+
+      // 数値の場合はそのまま返す
+      const numValue = parseInt(rankName)
+      if (!isNaN(numValue)) {
+        return numValue
+      }
+
+      return null
+    }
+
+    for (let i = 0; i < dataLines.length; i++) {
+      const rowNum = i + 2
+      try {
+        const fields = this.parseCsvLine(dataLines[i])
+
+        const playerDeckName = deckNameIdx >= 0 ? fields[deckNameIdx] : null
+        const opponentDeckName = opponentDeckNameIdx >= 0 ? fields[opponentDeckNameIdx] : null
+        const playedAtStr = playedAtIdx >= 0 ? fields[playedAtIdx] : null
+
+        if (!playerDeckName || !opponentDeckName) {
+          errors.push(`行${rowNum}: 使用デッキまたは相手デッキの名前が不足しています`)
+          continue
+        }
+
+        if (!playedAtStr) {
+          errors.push(`行${rowNum}: 対戦日時が不足しています`)
+          continue
+        }
+
+        // 日付をパース (YYYY-MM-DD HH:MM:SS -> ISO 8601)
+        let playedAt: string
+        try {
+          // YYYY-MM-DD HH:MM:SS形式
+          const match = playedAtStr.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
+          if (match) {
+            const [, year, month, day, hour, minute, second] = match
+            playedAt = new Date(
+              parseInt(year),
+              parseInt(month) - 1,
+              parseInt(day),
+              parseInt(hour),
+              parseInt(minute),
+              parseInt(second)
+            ).toISOString()
+          } else {
+            // YYYY/MM/DD HH:MM形式も対応
+            const match2 = playedAtStr.match(/^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/)
+            if (match2) {
+              const [, year, month, day, hour, minute] = match2
+              playedAt = new Date(
+                parseInt(year),
+                parseInt(month) - 1,
+                parseInt(day),
+                parseInt(hour),
+                parseInt(minute)
+              ).toISOString()
+            } else {
+              throw new Error(`対戦日時の形式が不正です: ${playedAtStr}`)
+            }
+          }
+        } catch (e) {
+          errors.push(`行${rowNum}: ${e instanceof Error ? e.message : String(e)}`)
+          continue
+        }
+
+        // Get or create decks
+        let playerDeckId = null
+        let opponentDeckId = null
+
+        if (playerDeckName) {
+          const deck = this.db
+            .prepare('SELECT id FROM deck WHERE name = ? AND is_opponent_deck = 0 AND is_archived = 0')
+            .get(playerDeckName) as any
+
+          if (deck) {
+            playerDeckId = deck.id
+          } else {
+            const result: any = this.createDeck({ name: playerDeckName, is_opponent_deck: false })
+            playerDeckId = result.id
+          }
+        }
+
+        if (opponentDeckName) {
+          const deck = this.db
+            .prepare('SELECT id FROM deck WHERE name = ? AND is_opponent_deck = 1 AND is_archived = 0')
+            .get(opponentDeckName) as any
+
+          if (deck) {
+            opponentDeckId = deck.id
+          } else {
+            const result: any = this.createDeck({ name: opponentDeckName, is_opponent_deck: true })
+            opponentDeckId = result.id
+          }
+        }
+
+        // 重複チェック
+        const existingDuel = this.db.prepare(`
+          SELECT id FROM duel
+          WHERE player_deck_id = ? AND opponent_deck_id = ? AND played_at = ?
+        `).get(playerDeckId, opponentDeckId, playedAt) as any
+
+        if (existingDuel) {
+          skippedCount++
+          continue
+        }
+
+        // 結果の変換: '勝利' -> 'win', '敗北' -> 'loss'
+        const resultStr = resultIdx >= 0 ? fields[resultIdx] : ''
+        const result = resultStr === '勝利' ? 'win' : 'loss'
+
+        // コインの変換: '表' -> 'win', '裏' -> 'loss'
+        const coinStr = coinIdx >= 0 ? fields[coinIdx] : ''
+        const coinResult = coinStr === '表' ? 'win' : 'loss'
+
+        // 先攻/後攻の変換: '先攻' -> 'first', '後攻' -> 'second'
+        const turnOrderStr = turnOrderIdx >= 0 ? fields[turnOrderIdx] : ''
+        const turnOrder = turnOrderStr === '先攻' || turnOrderStr === '先行' ? 'first' : 'second'
+
+        // ランクの処理
+        const rankStr = rankIdx >= 0 ? fields[rankIdx] : ''
+        const rankValue = getRankValue(rankStr)
+
+        // レートとDC値
+        const rateStr = rateIdx >= 0 ? fields[rateIdx] : ''
+        const rateValue = rateStr && !isNaN(parseInt(rateStr)) ? parseInt(rateStr) : null
+
+        const dcStr = dcIdx >= 0 ? fields[dcIdx] : ''
+        const dcValue = dcStr && !isNaN(parseInt(dcStr)) ? parseInt(dcStr) : null
+
+        duels.push({
+          player_deck_id: playerDeckId,
+          opponent_deck_id: opponentDeckId,
+          result: result,
+          game_mode: gameModeIdx >= 0 ? fields[gameModeIdx] || 'RANK' : 'RANK',
+          rank_value: rankValue,
+          rate_value: rateValue,
+          dc_value: dcValue,
+          coin_result: coinResult,
+          turn_order: turnOrder,
+          played_at: playedAt,
+          notes: notesIdx >= 0 ? fields[notesIdx] || null : null
+        })
+        createdCount++
+      } catch (e) {
+        errors.push(`行${rowNum}: ${e instanceof Error ? e.message : String(e)}`)
+        continue
+      }
+    }
+
+    if (duels.length > 0) {
+      this.importDuels(duels)
+    }
+
+    return {
+      success: true,
+      count: createdCount,
+      skipped: skippedCount,
+      errors: errors
+    }
+  }
+
+  // Helper: Escape CSV field
+  private escapeCsvField(field: string): string {
+    if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+      return `"${field.replace(/"/g, '""')}"`
+    }
+    return field
+  }
+
+  // Helper: Parse CSV line (handles quoted fields)
+  private parseCsvLine(line: string): string[] {
+    const fields = []
+    let currentField = ''
+    let inQuotes = false
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i]
+      const nextChar = line[i + 1]
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          currentField += '"'
+          i++ // Skip next quote
+        } else {
+          inQuotes = !inQuotes
+        }
+      } else if (char === ',' && !inQuotes) {
+        fields.push(currentField)
+        currentField = ''
+      } else {
+        currentField += char
+      }
+    }
+
+    fields.push(currentField)
+    return fields
+  }
+
   close() {
     this.db.close()
   }
