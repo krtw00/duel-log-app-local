@@ -567,31 +567,32 @@ export class Database {
     const deckUsage = new Map<number, { deck_name: string; count: number }>()
 
     duels.forEach((duel: any) => {
-      if (!deckUsage.has(duel.player_deck_id)) {
-        deckUsage.set(duel.player_deck_id, {
-          deck_name: duel.player_deck_name,
+      const deckId = duel.opponent_deck_id
+      if (!deckUsage.has(deckId)) {
+        deckUsage.set(deckId, {
+          deck_name: duel.opponent_deck_name || '不明なデッキ',
           count: 0
         })
       }
-      deckUsage.get(duel.player_deck_id)!.count++
+      deckUsage.get(deckId)!.count++
     })
 
-    return Array.from(deckUsage.values())
+    return Array.from(deckUsage.values()).sort((a, b) => b.count - a.count)
   }
 
   getRecentDeckDistribution(gameMode: string, limit: number = 30) {
     const sql = `
       SELECT
         d.id,
-        d.player_deck_id,
-        d.player_deck_name
+        d.opponent_deck_id,
+        d.opponent_deck_name
       FROM (
         SELECT
           duel.id,
-          duel.player_deck_id,
-          deck.name as player_deck_name
+          duel.opponent_deck_id,
+          deck.name as opponent_deck_name
         FROM duel
-        LEFT JOIN deck ON deck.id = duel.player_deck_id
+        LEFT JOIN deck ON deck.id = duel.opponent_deck_id
         WHERE duel.game_mode = ?
         ORDER BY duel.played_at DESC
         LIMIT ?
@@ -603,16 +604,17 @@ export class Database {
     const deckUsage = new Map<number, { deck_name: string; count: number }>()
 
     duels.forEach((duel: any) => {
-      if (!deckUsage.has(duel.player_deck_id)) {
-        deckUsage.set(duel.player_deck_id, {
-          deck_name: duel.player_deck_name,
+      const deckId = duel.opponent_deck_id
+      if (!deckUsage.has(deckId)) {
+        deckUsage.set(deckId, {
+          deck_name: duel.opponent_deck_name || '不明なデッキ',
           count: 0
         })
       }
-      deckUsage.get(duel.player_deck_id)!.count++
+      deckUsage.get(deckId)!.count++
     })
 
-    return Array.from(deckUsage.values())
+    return Array.from(deckUsage.values()).sort((a, b) => b.count - a.count)
   }
 
   getDeckWinRates(year: number, month: number, gameMode: string) {
@@ -714,90 +716,134 @@ export class Database {
       return ''
     }
 
-    // CSV header - 日本語ヘッダー（元のduel-log-appと同じ）
-    const headers = [
-      '使用デッキ',
-      '相手デッキ',
-      '結果',
-      'コイン',
-      '先攻/後攻',
-      'ゲームモード',
-      'ランク',
-      'レート',
-      'DC値',
-      '対戦日時',
-      'メモ'
-    ]
-
-    // Convert data to CSV rows
-    const rows = duels.map((duel: any) => {
-      // 日付フォーマット変換: ISO -> YYYY-MM-DD HH:MM:SS
-      let formattedDate = ''
-      if (duel.played_at) {
-        const date = new Date(duel.played_at)
-        const year = date.getFullYear()
-        const month = String(date.getMonth() + 1).padStart(2, '0')
-        const day = String(date.getDate()).padStart(2, '0')
-        const hours = String(date.getHours()).padStart(2, '0')
-        const minutes = String(date.getMinutes()).padStart(2, '0')
-        const seconds = String(date.getSeconds()).padStart(2, '0')
-        formattedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+    const columnMapping: Record<
+      string,
+      { header: string; getValue: (duel: any) => string }
+    > = {
+      deck_name: {
+        header: '使用デッキ',
+        getValue: (duel: any) => this.escapeCsvField(duel.player_deck_name || '')
+      },
+      opponent_deck_name: {
+        header: '相手デッキ',
+        getValue: (duel: any) => this.escapeCsvField(duel.opponent_deck_name || '')
+      },
+      result: {
+        header: '結果',
+        getValue: (duel: any) => (duel.result === 'win' ? '勝利' : '敗北')
+      },
+      coin: {
+        header: 'コイン',
+        getValue: (duel: any) => (duel.coin_result === 'win' ? '表' : '裏')
+      },
+      first_or_second: {
+        header: '先攻/後攻',
+        getValue: (duel: any) => (duel.turn_order === 'first' ? '先攻' : '後攻')
+      },
+      game_mode: {
+        header: 'ゲームモード',
+        getValue: (duel: any) => duel.game_mode || ''
+      },
+      rank: {
+        header: 'ランク',
+        getValue: (duel: any) => getRankName(duel.rank_value)
+      },
+      rate_value: {
+        header: 'レート',
+        getValue: (duel: any) => (duel.rate_value ?? '').toString()
+      },
+      dc_value: {
+        header: 'DC値',
+        getValue: (duel: any) => (duel.dc_value ?? '').toString()
+      },
+      played_date: {
+        header: '対戦日時',
+        getValue: (duel: any) => formatPlayedDate(duel.played_at)
+      },
+      notes: {
+        header: 'メモ',
+        getValue: (duel: any) => this.escapeCsvField(duel.notes || '')
       }
+    }
 
-      // ランク値をランク名に変換
-      const getRankName = (rankValue: number | null): string => {
-        if (!rankValue) return ''
-        if (rankValue === 1) return 'ブロンズ5'
-        if (rankValue === 2) return 'ブロンズ4'
-        if (rankValue === 3) return 'ブロンズ3'
-        if (rankValue === 4) return 'ブロンズ2'
-        if (rankValue === 5) return 'ブロンズ1'
-        if (rankValue === 6) return 'シルバー5'
-        if (rankValue === 7) return 'シルバー4'
-        if (rankValue === 8) return 'シルバー3'
-        if (rankValue === 9) return 'シルバー2'
-        if (rankValue === 10) return 'シルバー1'
-        if (rankValue === 11) return 'ゴールド5'
-        if (rankValue === 12) return 'ゴールド4'
-        if (rankValue === 13) return 'ゴールド3'
-        if (rankValue === 14) return 'ゴールド2'
-        if (rankValue === 15) return 'ゴールド1'
-        if (rankValue === 16) return 'プラチナ5'
-        if (rankValue === 17) return 'プラチナ4'
-        if (rankValue === 18) return 'プラチナ3'
-        if (rankValue === 19) return 'プラチナ2'
-        if (rankValue === 20) return 'プラチナ1'
-        if (rankValue === 21) return 'ダイヤモンド5'
-        if (rankValue === 22) return 'ダイヤモンド4'
-        if (rankValue === 23) return 'ダイヤモンド3'
-        if (rankValue === 24) return 'ダイヤモンド2'
-        if (rankValue === 25) return 'ダイヤモンド1'
-        if (rankValue === 26) return 'マスター5'
-        if (rankValue === 27) return 'マスター4'
-        if (rankValue === 28) return 'マスター3'
-        if (rankValue === 29) return 'マスター2'
-        if (rankValue === 30) return 'マスター1'
-        return String(rankValue)
-      }
+    const exportColumns =
+      columns && columns.length > 0
+        ? columns.filter(column => columnMapping[column])
+        : Object.keys(columnMapping)
 
-      return [
-        this.escapeCsvField(duel.player_deck_name || ''),
-        this.escapeCsvField(duel.opponent_deck_name || ''),
-        duel.result === 'win' ? '勝利' : '敗北',
-        duel.coin_result === 'win' ? '表' : '裏',
-        duel.turn_order === 'first' ? '先攻' : '後攻',
-        duel.game_mode || '',
-        getRankName(duel.rank_value),
-        duel.rate_value || '',
-        duel.dc_value || '',
-        formattedDate,
-        this.escapeCsvField(duel.notes || '')
-      ].join(',')
-    })
+    if (exportColumns.length === 0) {
+      return ''
+    }
+
+    const headers = exportColumns.map(column => columnMapping[column].header)
+
+    const rows = duels.map((duel: any) =>
+      exportColumns
+        .map(column => columnMapping[column].getValue(duel))
+        .map(value =>
+          typeof value === 'string' ? value : this.escapeCsvField(String(value))
+        )
+        .join(',')
+    )
 
     // UTF-8 BOMを追加
     const BOM = '\uFEFF'
     return BOM + [headers.join(','), ...rows].join('\n')
+
+    function formatPlayedDate(playedAt: string | null | undefined): string {
+      if (!playedAt) {
+        return ''
+      }
+
+      const date = new Date(playedAt)
+      if (Number.isNaN(date.getTime())) {
+        return ''
+      }
+
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      const hours = String(date.getHours()).padStart(2, '0')
+      const minutes = String(date.getMinutes()).padStart(2, '0')
+      const seconds = String(date.getSeconds()).padStart(2, '0')
+
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+    }
+
+    function getRankName(rankValue: number | null): string {
+      if (!rankValue) return ''
+      if (rankValue === 1) return 'ブロンズ5'
+      if (rankValue === 2) return 'ブロンズ4'
+      if (rankValue === 3) return 'ブロンズ3'
+      if (rankValue === 4) return 'ブロンズ2'
+      if (rankValue === 5) return 'ブロンズ1'
+      if (rankValue === 6) return 'シルバー5'
+      if (rankValue === 7) return 'シルバー4'
+      if (rankValue === 8) return 'シルバー3'
+      if (rankValue === 9) return 'シルバー2'
+      if (rankValue === 10) return 'シルバー1'
+      if (rankValue === 11) return 'ゴールド5'
+      if (rankValue === 12) return 'ゴールド4'
+      if (rankValue === 13) return 'ゴールド3'
+      if (rankValue === 14) return 'ゴールド2'
+      if (rankValue === 15) return 'ゴールド1'
+      if (rankValue === 16) return 'プラチナ5'
+      if (rankValue === 17) return 'プラチナ4'
+      if (rankValue === 18) return 'プラチナ3'
+      if (rankValue === 19) return 'プラチナ2'
+      if (rankValue === 20) return 'プラチナ1'
+      if (rankValue === 21) return 'ダイヤモンド5'
+      if (rankValue === 22) return 'ダイヤモンド4'
+      if (rankValue === 23) return 'ダイヤモンド3'
+      if (rankValue === 24) return 'ダイヤモンド2'
+      if (rankValue === 25) return 'ダイヤモンド1'
+      if (rankValue === 26) return 'マスター5'
+      if (rankValue === 27) return 'マスター4'
+      if (rankValue === 28) return 'マスター3'
+      if (rankValue === 29) return 'マスター2'
+      if (rankValue === 30) return 'マスター1'
+      return String(rankValue)
+    }
   }
 
   // CSV Import

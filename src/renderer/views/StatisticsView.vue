@@ -369,7 +369,9 @@ const fetchStatistics = async () => {
         selectedMonth.value,
         mode
       );
-      statisticsByMode.value[mode].matchupData = matchupData || [];
+      statisticsByMode.value[mode].matchupData = (matchupData || [])
+        .slice()
+        .sort((a: any, b: any) => (b.total_duels ?? 0) - (a.total_duels ?? 0));
 
       // 自分のデッキ勝率を取得
       const myDeckWinRates = await statisticsAPI.getDeckWinRates(
@@ -377,7 +379,9 @@ const fetchStatistics = async () => {
         selectedMonth.value,
         mode
       );
-      statisticsByMode.value[mode].myDeckWinRates = myDeckWinRates || [];
+      statisticsByMode.value[mode].myDeckWinRates = (myDeckWinRates || [])
+        .slice()
+        .sort((a: any, b: any) => (b.total_duels ?? 0) - (a.total_duels ?? 0));
 
       // 時系列データを取得（RATEとDCのみ）
       if (mode === 'RATE' || mode === 'DC') {
