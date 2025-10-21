@@ -20,17 +20,18 @@ export interface ElectronAPI {
     delete: (id: number) => Promise<any>
     import: (duelsData: any[]) => Promise<any>
     export: () => Promise<any[]>
-    exportCSV: () => Promise<any>
+    exportCSV: (year?: number, month?: number, gameMode?: string, columns?: string[]) => Promise<any>
     importCSV: () => Promise<any>
   }
   statistics: {
     getDashboard: (year: number, month: number, gameMode: string) => Promise<any>
-    getMonthly: (year: number, month: number, gameMode: string) => Promise<any>
-    getMonthlyDeckDistribution: (year: number, month: number, gameMode: string) => Promise<any>
-    getRecentDeckDistribution: (gameMode: string, limit: number) => Promise<any>
-    getDeckWinRates: (year: number, month: number, gameMode: string) => Promise<any>
-    getTimeSeries: (year: number, month: number, gameMode: string) => Promise<any>
-    getMatchupWinrates: (year: number, month: number, gameMode: string) => Promise<any>
+    getMonthly: (year: number, month: number, gameMode: string, options?: any) => Promise<any>
+    getMonthlyDeckDistribution: (year: number, month: number, gameMode: string, options?: any) => Promise<any>
+    getRecentDeckDistribution: (gameMode: string, limit: number, options?: any) => Promise<any>
+    getDeckWinRates: (year: number, month: number, gameMode: string, options?: any) => Promise<any>
+    getTimeSeries: (year: number, month: number, gameMode: string, options?: any) => Promise<any>
+    getMatchupWinrates: (year: number, month: number, gameMode: string, options?: any) => Promise<any>
+    getAvailableDecks: (year: number, month: number, gameMode?: string, options?: any) => Promise<any>
   }
 }
 

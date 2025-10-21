@@ -10,6 +10,11 @@
     fixed-header
     height="70vh"
   >
+    <!-- No.カラム -->
+    <template #[`item.no`]="{ index }">
+      <span class="text-grey">{{ formattedDuels.length - index }}</span>
+    </template>
+
     <!-- 勝敗カラム -->
     <template #[`item.result`]="{ item }">
       <v-chip
@@ -142,6 +147,7 @@ const formattedDuels = computed(() => {
 })
 
 const headers = [
+  { title: 'No.', key: 'no', sortable: false, width: 60 },
   { title: '使用デッキ', key: 'deck', sortable: false },
   { title: '相手デッキ', key: 'opponentdeck', sortable: false },
   { title: '勝敗', key: 'result', sortable: true, width: 100 },
