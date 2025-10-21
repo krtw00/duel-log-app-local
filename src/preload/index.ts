@@ -26,7 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (id: number, duelData: any) => ipcRenderer.invoke('duels:update', id, duelData),
     delete: (id: number) => ipcRenderer.invoke('duels:delete', id),
     import: (duelsData: any[]) => ipcRenderer.invoke('duels:import', duelsData),
-    export: () => ipcRenderer.invoke('duels:export')
+    export: () => ipcRenderer.invoke('duels:export'),
+    exportCSV: (year?: number, month?: number, gameMode?: string, columns?: string[]) =>
+      ipcRenderer.invoke('duels:exportCSV', year, month, gameMode, columns),
+    importCSV: () => ipcRenderer.invoke('duels:importCSV')
   },
 
   // Statistics operations

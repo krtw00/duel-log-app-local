@@ -20,6 +20,8 @@ export interface ElectronAPI {
     delete: (id: number) => Promise<any>
     import: (duelsData: any[]) => Promise<any>
     export: () => Promise<any[]>
+    exportCSV: () => Promise<any>
+    importCSV: () => Promise<any>
   }
   statistics: {
     getDashboard: (year: number, month: number, gameMode: string) => Promise<any>
