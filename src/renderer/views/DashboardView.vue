@@ -1,0 +1,409 @@
+<template>
+  <div>
+    <app-bar current-view="dashboard" @toggle-drawer="drawer = !drawer" />
+
+    <v-navigation-drawer v-model="drawer" temporary>
+      <v-list nav dense>
+        <v-list-item
+          v-for="item in navItems"
+          :key="item.view"
+          :prepend-icon="item.icon"
+          :to="item.path"
+          :title="item.name"
+        />
+      </v-list>
+    </v-navigation-drawer>
+
+    <v-main class="main-content">
+      <v-container fluid class="pa-6 pa-sm-6 pa-xs-3">
+        <v-card class="mode-tab-card mb-4">
+          <v-tabs
+            v-model="currentMode"
+            color="primary"
+            align-tabs="center"
+            show-arrows
+            class="mode-tabs"
+            @update:model-value="handleModeChange"
+          >
+            <v-tab value="RANK" class="custom-tab">
+              <v-icon :start="$vuetify.display.smAndUp">mdi-crown</v-icon>
+              <span class="d-none d-sm-inline">ランク</span>
+              <v-chip class="ml-1 ml-sm-2" size="small" color="primary">
+                {{ rankDuels.length }}
+              </v-chip>
+            </v-tab>
+            <v-tab value="RATE" class="custom-tab">
+              <v-icon :start="$vuetify.display.smAndUp">mdi-chart-line</v-icon>
+              <span class="d-none d-sm-inline">レート</span>
+              <v-chip class="ml-1 ml-sm-2" size="small" color="info">
+                {{ rateDuels.length }}
+              </v-chip>
+            </v-tab>
+            <v-tab value="EVENT" class="custom-tab">
+              <v-icon :start="$vuetify.display.smAndUp">mdi-calendar-star</v-icon>
+              <span class="d-none d-sm-inline">イベント</span>
+              <v-chip class="ml-1 ml-sm-2" size="small" color="secondary">
+                {{ eventDuels.length }}
+              </v-chip>
+            </v-tab>
+            <v-tab value="DC" class="custom-tab">
+              <v-icon :start="$vuetify.display.smAndUp">mdi-trophy-variant</v-icon>
+              <span class="d-none d-sm-inline">DC</span>
+              <v-chip class="ml-1 ml-sm-2" size="small" color="warning">
+                {{ dcDuels.length }}
+              </v-chip>
+            </v-tab>
+          </v-tabs>
+        </v-card>
+
+        <v-row class="mb-4">
+          <v-col cols="6" sm="3">
+            <v-select
+              v-model="selectedYear"
+              :items="years"
+              label="年"
+              variant="outlined"
+              density="compact"
+              hide-details
+              @update:model-value="fetchDuels"
+            />
+          </v-col>
+          <v-col cols="6" sm="3">
+            <v-select
+              v-model="selectedMonth"
+              :items="months"
+              label="月"
+              variant="outlined"
+              density="compact"
+              hide-details
+              item-title="title"
+              item-value="value"
+              @update:model-value="fetchDuels"
+            />
+          </v-col>
+        </v-row>
+
+        <v-row class="mb-4">
+          <v-col cols="6" sm="4" md="2">
+            <stat-card
+              title="総試合数"
+              :value="currentStats.total_duels"
+              icon="mdi-sword-cross"
+              color="primary"
+            />
+          </v-col>
+          <v-col cols="6" sm="4" md="2">
+            <stat-card
+              title="勝率"
+              :value="formatPercent(currentStats.win_rate)"
+              icon="mdi-trophy"
+              color="success"
+            />
+          </v-col>
+          <v-col cols="6" sm="4" md="2">
+            <stat-card
+              title="先攻勝率"
+              :value="formatPercent(currentStats.first_turn_win_rate)"
+              icon="mdi-lightning-bolt"
+              color="warning"
+            />
+          </v-col>
+          <v-col cols="6" sm="4" md="2">
+            <stat-card
+              title="後攻勝率"
+              :value="formatPercent(currentStats.second_turn_win_rate)"
+              icon="mdi-shield"
+              color="secondary"
+            />
+          </v-col>
+          <v-col cols="6" sm="4" md="2">
+            <stat-card
+              title="コイン勝率"
+              :value="formatPercent(currentStats.coin_win_rate)"
+              icon="mdi-poker-chip"
+              color="yellow"
+            />
+          </v-col>
+          <v-col cols="6" sm="4" md="2">
+            <stat-card
+              title="先行率"
+              :value="formatPercent(currentStats.go_first_rate)"
+              icon="mdi-arrow-up-bold-hexagon-outline"
+              color="teal"
+            />
+          </v-col>
+        </v-row>
+
+        <v-card class="duel-card">
+          <v-card-title class="pa-4">
+            <div class="d-flex align-center mb-3">
+              <v-icon class="mr-2" color="primary">mdi-table</v-icon>
+              <span class="text-h6">対戦履歴</span>
+            </div>
+            <div class="d-flex align-center ga-2">
+              <v-spacer />
+              <v-btn color="primary" prepend-icon="mdi-plus" @click="openDuelDialog">
+                対戦記録を追加
+              </v-btn>
+            </div>
+          </v-card-title>
+          <duel-table
+            :duels="currentDuels"
+            :loading="loading"
+            @edit="editDuel"
+            @delete="deleteDuel"
+          />
+        </v-card>
+      </v-container>
+    </v-main>
+
+    <duel-form-dialog
+      v-model="showDuelDialog"
+      :duel="editingDuel"
+      :default-game-mode="currentMode"
+      @saved="handleDuelSaved"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import AppBar from '@/components/layout/AppBar.vue'
+import StatCard from '@/components/duel/StatCard.vue'
+import DuelTable from '@/components/duel/DuelTable.vue'
+import DuelFormDialog from '@/components/duel/DuelFormDialog.vue'
+import { deckAPI, duelAPI } from '@/services/api'
+import { useNotificationStore } from '@/stores/notification'
+import type { Deck, Duel, DuelStats, GameMode } from '@/types'
+
+const drawer = ref(false)
+const currentMode = ref<GameMode>('RANK')
+const selectedYear = ref(new Date().getFullYear())
+const selectedMonth = ref(new Date().getMonth() + 1)
+const loading = ref(false)
+const duels = ref<Duel[]>([])
+
+const showDuelDialog = ref(false)
+const editingDuel = ref<Duel | null>(null)
+
+const notificationStore = useNotificationStore()
+
+const navItems = [
+  { name: 'ダッシュボード', path: '/', view: 'dashboard', icon: 'mdi-view-dashboard' },
+  { name: 'デッキ管理', path: '/decks', view: 'decks', icon: 'mdi-cards' },
+  { name: '統計', path: '/statistics', view: 'statistics', icon: 'mdi-chart-bar' }
+]
+
+const years = computed(() => {
+  const currentYear = new Date().getFullYear()
+  return Array.from({ length: 5 }, (_, i) => currentYear - i)
+})
+
+const months = computed(() =>
+  Array.from({ length: 12 }, (_, i) => ({
+    title: `${i + 1}月`,
+    value: i + 1
+  }))
+)
+
+const rankDuels = computed(() => duels.value.filter((duel) => duel.game_mode === 'RANK'))
+const rateDuels = computed(() => duels.value.filter((duel) => duel.game_mode === 'RATE'))
+const eventDuels = computed(() => duels.value.filter((duel) => duel.game_mode === 'EVENT'))
+const dcDuels = computed(() => duels.value.filter((duel) => duel.game_mode === 'DC'))
+
+const currentDuels = computed(() => {
+  switch (currentMode.value) {
+    case 'RANK':
+      return rankDuels.value
+    case 'RATE':
+      return rateDuels.value
+    case 'EVENT':
+      return eventDuels.value
+    case 'DC':
+      return dcDuels.value
+    default:
+      return []
+  }
+})
+
+const emptyStats = (): DuelStats => ({
+  total_duels: 0,
+  win_count: 0,
+  lose_count: 0,
+  win_rate: 0,
+  first_turn_win_rate: 0,
+  second_turn_win_rate: 0,
+  coin_win_rate: 0,
+  go_first_rate: 0
+})
+
+const rankStats = ref<DuelStats>(emptyStats())
+const rateStats = ref<DuelStats>(emptyStats())
+const eventStats = ref<DuelStats>(emptyStats())
+const dcStats = ref<DuelStats>(emptyStats())
+
+const currentStats = computed(() => {
+  switch (currentMode.value) {
+    case 'RANK':
+      return rankStats.value
+    case 'RATE':
+      return rateStats.value
+    case 'EVENT':
+      return eventStats.value
+    case 'DC':
+      return dcStats.value
+    default:
+      return emptyStats()
+  }
+})
+
+const formatPercent = (value: number) => `${(Number.isFinite(value) ? value * 100 : 0).toFixed(1)}%`
+
+const calculateStats = (duelList: Duel[]): DuelStats => {
+  const total = duelList.length
+  if (total === 0) {
+    return emptyStats()
+  }
+
+  const winCount = duelList.filter((duel) => duel.result === 'win').length
+  const firstTurnDuels = duelList.filter((duel) => duel.turn_order === 'first')
+  const secondTurnDuels = duelList.filter((duel) => duel.turn_order === 'second')
+  const firstTurnWins = firstTurnDuels.filter((duel) => duel.result === 'win').length
+  const secondTurnWins = secondTurnDuels.filter((duel) => duel.result === 'win').length
+  const coinWins = duelList.filter((duel) => duel.coin_result === 'win').length
+
+  return {
+    total_duels: total,
+    win_count: winCount,
+    lose_count: total - winCount,
+    win_rate: winCount / total,
+    first_turn_win_rate:
+      firstTurnDuels.length > 0 ? firstTurnWins / firstTurnDuels.length : 0,
+    second_turn_win_rate:
+      secondTurnDuels.length > 0 ? secondTurnWins / secondTurnDuels.length : 0,
+    coin_win_rate: total > 0 ? coinWins / total : 0,
+    go_first_rate: total > 0 ? firstTurnDuels.length / total : 0
+  }
+}
+
+const updateStats = () => {
+  rankStats.value = calculateStats(rankDuels.value)
+  rateStats.value = calculateStats(rateDuels.value)
+  eventStats.value = calculateStats(eventDuels.value)
+  dcStats.value = calculateStats(dcDuels.value)
+}
+
+const fetchDuels = async () => {
+  loading.value = true
+  try {
+    const deckList = (await deckAPI.getAll()) as Deck[]
+    const deckMap = new Map<number, Deck>(deckList.map((deck) => [deck.id, deck]))
+
+    const data = await duelAPI.getAll({
+      year: selectedYear.value,
+      month: selectedMonth.value
+    })
+    duels.value = (data || []).map((duel) => ({
+      ...duel,
+      player_deck_name: duel.player_deck_name ?? deckMap.get(duel.player_deck_id)?.name,
+      opponent_deck_name:
+        duel.opponent_deck_name ?? deckMap.get(duel.opponent_deck_id)?.name
+    }))
+    updateStats()
+  } catch (error) {
+    notificationStore.error('対戦履歴の取得に失敗しました')
+    console.error('Failed to fetch duels:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleModeChange = (mode: GameMode) => {
+  currentMode.value = mode
+}
+
+const openDuelDialog = () => {
+  editingDuel.value = null
+  showDuelDialog.value = true
+}
+
+const editDuel = (duel: Duel) => {
+  editingDuel.value = duel
+  showDuelDialog.value = true
+}
+
+const handleDuelSaved = async () => {
+  await fetchDuels()
+}
+
+const deleteDuel = async (id: number) => {
+  if (!confirm('この対戦記録を削除しますか？')) {
+    return
+  }
+
+  try {
+    await duelAPI.delete(id)
+    notificationStore.success('対戦記録を削除しました')
+    await fetchDuels()
+  } catch (error) {
+    notificationStore.error('対戦記録の削除に失敗しました')
+    console.error('Failed to delete duel:', error)
+  }
+}
+
+onMounted(() => {
+  fetchDuels()
+})
+</script>
+
+<style scoped lang="scss">
+.main-content {
+  background: rgb(var(--v-theme-background));
+  min-height: 100vh;
+}
+
+.mode-tab-card {
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 12px !important;
+}
+
+.mode-tabs {
+  .v-tab {
+    text-transform: none;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+}
+
+.custom-tab {
+  font-size: 1rem;
+  padding: 0 24px;
+  transition: background-color 0.3s ease;
+  min-width: auto;
+
+  &:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.duel-card {
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 12px !important;
+}
+
+@media (max-width: 599px) {
+  .custom-tab {
+    padding: 0 8px;
+    font-size: 0.875rem;
+    min-width: 60px;
+  }
+
+  .mode-tabs {
+    :deep(.v-slide-group__content) {
+      justify-content: space-between;
+    }
+  }
+}
+</style>
