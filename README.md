@@ -103,6 +103,52 @@ duel-log-app-local/
 - macOS: `~/Library/Application Support/duel-log-app-local/duel-log.db`
 - Linux: `~/.config/duel-log-app-local/duel-log.db`
 
+## バージョンアップとリリース
+
+### バージョン番号の変更
+
+npmコマンドでバージョンを更新（推奨）：
+
+```bash
+# パッチバージョンアップ (1.0.0 → 1.0.1) - バグフィックス
+npm version patch
+
+# マイナーバージョンアップ (1.0.0 → 1.1.0) - 新機能追加
+npm version minor
+
+# メジャーバージョンアップ (1.0.0 → 2.0.0) - 破壊的変更
+npm version major
+
+# 特定のバージョンを指定
+npm version 1.5.0
+```
+
+### リリースワークフロー
+
+1. **バージョンアップ**（自動でコミット＆タグ作成）
+   ```bash
+   npm version <新バージョン> -m "Release v%s: リリースノート"
+   ```
+
+2. **アイコン再生成**（アイコンを変更した場合）
+   ```bash
+   node generate-icons.js
+   ```
+
+3. **ビルド**
+   ```bash
+   npm run electron:build
+   ```
+
+4. **GitHubへプッシュ**
+   ```bash
+   git push && git push --tags
+   ```
+
+ビルド成果物は `release/` ディレクトリに生成されます：
+- `Duel Log App Setup <バージョン>.exe` - インストーラー版
+- `Duel Log App <バージョン>.exe` - ポータブル版
+
 ## ライセンス
 
-元のduel-log-appプロジェクトと同じライセンスに従います。
+このプロジェクトは [MIT License](LICENSE) の下でライセンスされています。
