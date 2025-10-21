@@ -186,26 +186,33 @@ ipcMain.handle('statistics:getDashboard', async (_, year, month, gameMode) => {
   return database.getDashboardStatistics(year, month, gameMode)
 })
 
-ipcMain.handle('statistics:getMonthly', async (_, year, month, gameMode) => {
-  return database.getMonthlyStatistics(year, month, gameMode)
+ipcMain.handle('statistics:getMonthly', async (_, year, month, gameMode, options) => {
+  return database.getMonthlyStatistics(year, month, gameMode, options)
 })
 
-ipcMain.handle('statistics:getMonthlyDeckDistribution', async (_, year, month, gameMode) => {
-  return database.getMonthlyDeckDistribution(year, month, gameMode)
+ipcMain.handle(
+  'statistics:getMonthlyDeckDistribution',
+  async (_, year, month, gameMode, options) => {
+    return database.getMonthlyDeckDistribution(year, month, gameMode, options)
+  }
+)
+
+ipcMain.handle('statistics:getRecentDeckDistribution', async (_, gameMode, limit, options) => {
+  return database.getRecentDeckDistribution(gameMode, limit, options)
 })
 
-ipcMain.handle('statistics:getRecentDeckDistribution', async (_, gameMode, limit) => {
-  return database.getRecentDeckDistribution(gameMode, limit)
+ipcMain.handle('statistics:getDeckWinRates', async (_, year, month, gameMode, options) => {
+  return database.getDeckWinRates(year, month, gameMode, options)
 })
 
-ipcMain.handle('statistics:getDeckWinRates', async (_, year, month, gameMode) => {
-  return database.getDeckWinRates(year, month, gameMode)
+ipcMain.handle('statistics:getTimeSeries', async (_, year, month, gameMode, options) => {
+  return database.getMonthlyTimeSeriesStatistics(year, month, gameMode, options)
 })
 
-ipcMain.handle('statistics:getTimeSeries', async (_, year, month, gameMode) => {
-  return database.getMonthlyTimeSeriesStatistics(year, month, gameMode)
+ipcMain.handle('statistics:getMatchupWinrates', async (_, year, month, gameMode, options) => {
+  return database.getMatchupWinrates(year, month, gameMode, options)
 })
 
-ipcMain.handle('statistics:getMatchupWinrates', async (_, year, month, gameMode) => {
-  return database.getMatchupWinrates(year, month, gameMode)
+ipcMain.handle('statistics:getAvailableDecks', async (_, year, month, gameMode, options) => {
+  return database.getAvailableDecks(year, month, gameMode, options)
 })

@@ -47,6 +47,77 @@
           </v-col>
         </v-row>
 
+        <!-- 統計フィルター -->
+        <v-card class="filter-card mb-4">
+          <v-card-title class="pa-4">
+            <div class="d-flex align-center">
+              <v-icon class="mr-2" color="primary">mdi-filter</v-icon>
+              <span class="text-h6">統計フィルター</span>
+            </div>
+          </v-card-title>
+          <v-divider />
+          <v-card-text class="pa-4">
+            <v-row>
+              <v-col cols="12" sm="6" md="4">
+                <v-select
+                  v-model="filterPeriodType"
+                  :items="filterPeriodOptions"
+                  label="期間"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  @update:model-value="refreshStatisticsWithDecks"
+                ></v-select>
+              </v-col>
+              <v-col v-if="filterPeriodType === 'range'" cols="6" sm="3" md="2">
+                <v-text-field
+                  v-model.number="filterRangeStart"
+                  label="開始（試合目）"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  type="number"
+                  min="1"
+                  @update:model-value="refreshStatisticsWithDecks"
+                ></v-text-field>
+              </v-col>
+              <v-col v-if="filterPeriodType === 'range'" cols="6" sm="3" md="2">
+                <v-text-field
+                  v-model.number="filterRangeEnd"
+                  label="終了（試合目）"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  type="number"
+                  min="1"
+                  @update:model-value="refreshStatisticsWithDecks"
+                ></v-text-field>
+              </v-col>
+              <v-col cols="12" sm="6" md="4">
+                <v-select
+                  v-model="filterMyDeckId"
+                  :items="availableMyDecks"
+                  item-title="name"
+                  item-value="id"
+                  label="自分のデッキ"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  clearable
+                  :disabled="availableMyDecks.length === 0"
+                  @update:model-value="handleMyDeckFilterChange"
+                ></v-select>
+              </v-col>
+              <v-col cols="12" sm="6" md="2" class="d-flex align-center">
+                <v-btn color="secondary" variant="outlined" block @click="resetFilters">
+                  <v-icon start>mdi-refresh</v-icon>
+                  リセット
+                </v-btn>
+              </v-col>
+            </v-row>
+          </v-card-text>
+        </v-card>
+
         <!-- ゲームモード切り替えタブ -->
         <v-card class="mode-tab-card mb-4">
           <v-tabs v-model="currentTab" color="primary" align-tabs="center" height="64">
@@ -73,7 +144,7 @@
           <v-window-item v-for="mode in ['RANK', 'RATE', 'EVENT', 'DC']" :key="mode" :value="mode">
             <v-row>
               <!-- 月間デッキ分布 -->
-              <v-col cols="12" md="6">
+              <v-col cols="12">
                 <v-card class="stats-card">
                   <v-card-title>月間デッキ分布 ({{ currentMonth }})</v-card-title>
                   <v-card-text>
@@ -88,26 +159,6 @@
                     ></apexchart>
                     <div v-else class="no-data-placeholder">
                       <v-icon size="64" color="grey">mdi-chart-pie</v-icon>
-                      <p class="text-body-1 text-grey mt-4">データがありません</p>
-                    </div>
-                  </v-card-text>
-                </v-card>
-              </v-col>
-
-              <!-- 直近30戦デッキ分布 -->
-              <v-col cols="12" md="6">
-                <v-card class="stats-card">
-                  <v-card-title>直近30戦デッキ分布</v-card-title>
-                  <v-card-text>
-                    <apexchart
-                      v-if="!loading && statisticsByMode[mode].recentDistribution.series.length > 0"
-                      type="pie"
-                      height="350"
-                      :options="statisticsByMode[mode].recentDistribution.chartOptions"
-                      :series="statisticsByMode[mode].recentDistribution.series"
-                    ></apexchart>
-                    <div v-else class="no-data-placeholder">
-                      <v-icon size="64" color="grey">mdi-chart-donut</v-icon>
                       <p class="text-body-1 text-grey mt-4">データがありません</p>
                     </div>
                   </v-card-text>
@@ -235,7 +286,6 @@ interface TimeSeriesData {
 
 interface StatisticsModeData {
   monthlyDistribution: DistributionData;
-  recentDistribution: DistributionData;
   matchupData: any[];
   myDeckWinRates: any[];
   timeSeries: TimeSeriesData;
@@ -257,6 +307,18 @@ const years = computed(() => {
 });
 const months = Array.from({ length: 12 }, (_, i) => i + 1);
 const currentMonth = computed(() => `${selectedYear.value}年${selectedMonth.value}月`);
+
+// --- Filter Settings ---
+const filterPeriodType = ref<'all' | 'range'>('all');
+const filterRangeStart = ref(1);
+const filterRangeEnd = ref(30);
+const filterMyDeckId = ref<number | null>(null);
+const availableMyDecks = ref<{ id: number; name: string }[]>([]);
+
+const filterPeriodOptions = [
+  { title: '全体', value: 'all' },
+  { title: '範囲指定', value: 'range' }
+];
 
 // --- Chart Base Options ---
 const baseChartOptions = computed(() => ({
@@ -317,7 +379,6 @@ const createInitialStats = (): AllStatisticsData => {
   modes.forEach((mode) => {
     stats[mode] = {
       monthlyDistribution: { series: [], chartOptions: { ...baseChartOptions.value, labels: [] } },
-      recentDistribution: { series: [], chartOptions: { ...baseChartOptions.value, labels: [] } },
       matchupData: [],
       myDeckWinRates: [],
       timeSeries: {
@@ -335,17 +396,60 @@ const createInitialStats = (): AllStatisticsData => {
 
 const statisticsByMode = ref<AllStatisticsData>(createInitialStats());
 
+const buildStatisticsOptions = () => {
+  const options: Record<string, number> = {};
+
+  if (filterPeriodType.value === 'range') {
+    options.rangeStart = filterRangeStart.value;
+    options.rangeEnd = filterRangeEnd.value;
+  }
+
+  if (filterMyDeckId.value !== null) {
+    options.myDeckId = filterMyDeckId.value;
+  }
+
+  return options;
+};
+
+const fetchAvailableDecks = async () => {
+  try {
+    const options =
+      filterPeriodType.value === 'range'
+        ? { rangeStart: filterRangeStart.value, rangeEnd: filterRangeEnd.value }
+        : {};
+    const response = await statisticsAPI.getAvailableDecks(
+      selectedYear.value,
+      selectedMonth.value,
+      currentTab.value,
+      options
+    );
+
+    availableMyDecks.value = response?.my_decks || [];
+
+    if (
+      filterMyDeckId.value !== null &&
+      !availableMyDecks.value.some((deck) => deck.id === filterMyDeckId.value)
+    ) {
+      filterMyDeckId.value = null;
+    }
+  } catch (error) {
+    console.error('Failed to fetch available decks:', error);
+  }
+};
+
 const fetchStatistics = async () => {
   loading.value = true;
   try {
     const modes = ['RANK', 'RATE', 'EVENT', 'DC'];
+    const options = buildStatisticsOptions();
 
     for (const mode of modes) {
       // 月間デッキ分布を取得
       const monthlyDist = await statisticsAPI.getMonthlyDeckDistribution(
         selectedYear.value,
         selectedMonth.value,
-        mode
+        mode,
+        options
       );
       const monthlyLabels = monthlyDist?.map((d: any) => d.deck_name) || [];
       const monthlySeries = monthlyDist?.map((d: any) => d.count) || [];
@@ -354,20 +458,12 @@ const fetchStatistics = async () => {
         chartOptions: { ...baseChartOptions.value, labels: monthlyLabels },
       };
 
-      // 直近30戦デッキ分布を取得
-      const recentDist = await statisticsAPI.getRecentDeckDistribution(mode, 30);
-      const recentLabels = recentDist?.map((d: any) => d.deck_name) || [];
-      const recentSeries = recentDist?.map((d: any) => d.count) || [];
-      statisticsByMode.value[mode].recentDistribution = {
-        series: recentSeries,
-        chartOptions: { ...baseChartOptions.value, labels: recentLabels },
-      };
-
       // マッチアップデータを取得
       const matchupData = await statisticsAPI.getMatchupWinrates(
         selectedYear.value,
         selectedMonth.value,
-        mode
+        mode,
+        options
       );
       statisticsByMode.value[mode].matchupData = (matchupData || [])
         .slice()
@@ -377,7 +473,8 @@ const fetchStatistics = async () => {
       const myDeckWinRates = await statisticsAPI.getDeckWinRates(
         selectedYear.value,
         selectedMonth.value,
-        mode
+        mode,
+        options
       );
       statisticsByMode.value[mode].myDeckWinRates = (myDeckWinRates || [])
         .slice()
@@ -388,7 +485,8 @@ const fetchStatistics = async () => {
         const timeSeriesData = await statisticsAPI.getTimeSeries(
           selectedYear.value,
           selectedMonth.value,
-          mode
+          mode,
+          options
         );
         const categories = timeSeriesData?.map((_: any, i: number) => i + 1) || [];
         const seriesData = timeSeriesData?.map((d: any) => d.value) || [];
@@ -410,6 +508,23 @@ const fetchStatistics = async () => {
   }
 };
 
+const refreshStatisticsWithDecks = async () => {
+  await fetchAvailableDecks();
+  await fetchStatistics();
+};
+
+const handleMyDeckFilterChange = async () => {
+  await fetchStatistics();
+};
+
+const resetFilters = () => {
+  filterPeriodType.value = 'all';
+  filterRangeStart.value = 1;
+  filterRangeEnd.value = 30;
+  filterMyDeckId.value = null;
+  refreshStatisticsWithDecks();
+};
+
 // --- Data Table ---
 const matchupHeaders = [
   { title: '使用デッキ', key: 'deck_name', sortable: false },
@@ -426,9 +541,17 @@ const myDeckWinRatesHeaders = [
   { title: '勝率', key: 'win_rate', sortable: true },
 ];
 
-onMounted(fetchStatistics);
+onMounted(() => {
+  refreshStatisticsWithDecks();
+});
 
-watch([selectedYear, selectedMonth], fetchStatistics);
+watch([selectedYear, selectedMonth], () => {
+  refreshStatisticsWithDecks();
+});
+
+watch(currentTab, () => {
+  refreshStatisticsWithDecks();
+});
 
 // テーマ変更時にグラフを再描画
 watch(() => themeStore.isDark, () => {
@@ -443,6 +566,12 @@ watch(() => themeStore.isDark, () => {
 
 .statistics-title {
   color: rgb(var(--v-theme-on-surface));
+}
+
+.filter-card {
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 12px !important;
 }
 
 .stats-card {

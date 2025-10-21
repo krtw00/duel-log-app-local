@@ -1,5 +1,12 @@
 import BetterSqlite3 from 'better-sqlite3'
 
+type StatisticsFilterOptions = {
+  rangeStart?: number
+  rangeEnd?: number
+  myDeckId?: number
+  opponentDeckId?: number
+}
+
 export class Database {
   private db: BetterSqlite3.Database
 
@@ -91,6 +98,31 @@ export class Database {
         ALTER TABLE deck ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0
       `)
     }
+  }
+
+  private applyStatisticsFilters(duels: any[], options: StatisticsFilterOptions = {}) {
+    const { rangeStart, rangeEnd, myDeckId, opponentDeckId } = options
+
+    let filtered = [...duels]
+
+    if (rangeStart !== undefined || rangeEnd !== undefined) {
+      const sorted = filtered.sort(
+        (a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime()
+      )
+      const startIndex = Math.max(0, (rangeStart ?? 1) - 1)
+      const rawEnd = rangeEnd !== undefined ? Math.max(rangeEnd, startIndex + 1) : sorted.length
+      filtered = sorted.slice(startIndex, rawEnd)
+    }
+
+    if (myDeckId !== undefined && myDeckId !== null) {
+      filtered = filtered.filter((duel) => duel.player_deck_id === myDeckId)
+    }
+
+    if (opponentDeckId !== undefined && opponentDeckId !== null) {
+      filtered = filtered.filter((duel) => duel.opponent_deck_id === opponentDeckId)
+    }
+
+    return filtered
   }
 
   // User operations
@@ -418,9 +450,14 @@ export class Database {
     return stats
   }
 
-  getMonthlyStatistics(year: number, month: number, gameMode: string) {
+  getMonthlyStatistics(
+    year: number,
+    month: number,
+    gameMode: string,
+    options: StatisticsFilterOptions = {}
+  ) {
     const filters = { year, month, game_mode: gameMode }
-    const duels = this.getAllDuels(filters)
+    const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
 
     // Deck usage statistics
     const playerDeckUsage = new Map<number, { name: string; count: number }>()
@@ -480,9 +517,14 @@ export class Database {
     return this.db.prepare(sql).all(gameMode, startDate, endDate)
   }
 
-  getMatchupWinrates(year: number, month: number, gameMode: string) {
+  getMatchupWinrates(
+    year: number,
+    month: number,
+    gameMode: string,
+    options: StatisticsFilterOptions = {}
+  ) {
     const filters = { year, month, game_mode: gameMode }
-    const duels = this.getAllDuels(filters)
+    const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
 
     // Calculate matchup winrates with turn order stats
     const matchups = new Map<
@@ -560,9 +602,14 @@ export class Database {
     return Array.from(matchups.values())
   }
 
-  getMonthlyDeckDistribution(year: number, month: number, gameMode: string) {
+  getMonthlyDeckDistribution(
+    year: number,
+    month: number,
+    gameMode: string,
+    options: StatisticsFilterOptions = {}
+  ) {
     const filters = { year, month, game_mode: gameMode }
-    const duels = this.getAllDuels(filters)
+    const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
 
     const deckUsage = new Map<number, { deck_name: string; count: number }>()
 
@@ -580,30 +627,23 @@ export class Database {
     return Array.from(deckUsage.values()).sort((a, b) => b.count - a.count)
   }
 
-  getRecentDeckDistribution(gameMode: string, limit: number = 30) {
-    const sql = `
-      SELECT
-        d.id,
-        d.opponent_deck_id,
-        d.opponent_deck_name
-      FROM (
-        SELECT
-          duel.id,
-          duel.opponent_deck_id,
-          deck.name as opponent_deck_name
-        FROM duel
-        LEFT JOIN deck ON deck.id = duel.opponent_deck_id
-        WHERE duel.game_mode = ?
-        ORDER BY duel.played_at DESC
-        LIMIT ?
-      ) d
-    `
-
-    const duels = this.db.prepare(sql).all(gameMode, limit) as any[]
+  getRecentDeckDistribution(
+    gameMode: string,
+    limit: number = 30,
+    options: StatisticsFilterOptions = {}
+  ) {
+    const baseFilters = gameMode ? { game_mode: gameMode } : {}
+    const duels = this.getAllDuels(baseFilters)
+    const filtered = this.applyStatisticsFilters(duels, options)
+    const hasRangeFilter = options.rangeStart !== undefined || options.rangeEnd !== undefined
+    const sorted = [...filtered].sort(
+      (a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime()
+    )
+    const targetDuels = hasRangeFilter ? sorted : sorted.slice(0, limit)
 
     const deckUsage = new Map<number, { deck_name: string; count: number }>()
 
-    duels.forEach((duel: any) => {
+    targetDuels.forEach((duel: any) => {
       const deckId = duel.opponent_deck_id
       if (!deckUsage.has(deckId)) {
         deckUsage.set(deckId, {
@@ -617,9 +657,14 @@ export class Database {
     return Array.from(deckUsage.values()).sort((a, b) => b.count - a.count)
   }
 
-  getDeckWinRates(year: number, month: number, gameMode: string) {
+  getDeckWinRates(
+    year: number,
+    month: number,
+    gameMode: string,
+    options: StatisticsFilterOptions = {}
+  ) {
     const filters = { year, month, game_mode: gameMode }
-    const duels = this.getAllDuels(filters)
+    const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
 
     const deckStats = new Map<
       number,
@@ -657,31 +702,66 @@ export class Database {
     return Array.from(deckStats.values())
   }
 
-  getMonthlyTimeSeriesStatistics(year: number, month: number, gameMode: string) {
-    const sql = `
-      SELECT
-        ROW_NUMBER() OVER (ORDER BY played_at) as sequence,
-        CASE
-          WHEN game_mode = 'RANK' THEN rank_value
-          WHEN game_mode = 'RATE' THEN rate_value
-          WHEN game_mode = 'DC' THEN dc_value
-        END as value
-      FROM duel
-      WHERE game_mode = ?
-        AND strftime('%Y', played_at) = ?
-        AND strftime('%m', played_at) = ?
-        AND (
-          (game_mode = 'RANK' AND rank_value IS NOT NULL) OR
-          (game_mode = 'RATE' AND rate_value IS NOT NULL) OR
-          (game_mode = 'DC' AND dc_value IS NOT NULL)
-        )
-      ORDER BY played_at
-    `
+  getMonthlyTimeSeriesStatistics(
+    year: number,
+    month: number,
+    gameMode: string,
+    options: StatisticsFilterOptions = {}
+  ) {
+    if (!['RANK', 'RATE', 'DC'].includes(gameMode)) {
+      return []
+    }
 
-    const yearStr = year.toString()
-    const monthStr = month.toString().padStart(2, '0')
+    const filters = { year, month, game_mode: gameMode }
+    const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
 
-    return this.db.prepare(sql).all(gameMode, yearStr, monthStr)
+    const valueKey =
+      gameMode === 'RANK' ? 'rank_value' : gameMode === 'RATE' ? 'rate_value' : 'dc_value'
+
+    const sorted = duels
+      .filter((duel: any) => duel[valueKey] !== null && duel[valueKey] !== undefined)
+      .sort((a: any, b: any) => new Date(a.played_at).getTime() - new Date(b.played_at).getTime())
+
+    return sorted.map((duel: any, index: number) => ({
+      sequence: index + 1,
+      value: duel[valueKey]
+    }))
+  }
+
+  getAvailableDecks(
+    year: number,
+    month: number,
+    gameMode?: string,
+    options: StatisticsFilterOptions = {}
+  ) {
+    const filters: any = { year, month }
+    if (gameMode) {
+      filters.game_mode = gameMode
+    }
+
+    const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
+
+    const myDecks = new Map<number, string>()
+    const opponentDecks = new Map<number, string>()
+
+    duels.forEach((duel: any) => {
+      if (duel.player_deck_id && duel.player_deck_name) {
+        myDecks.set(duel.player_deck_id, duel.player_deck_name)
+      }
+      if (duel.opponent_deck_id && duel.opponent_deck_name) {
+        opponentDecks.set(duel.opponent_deck_id, duel.opponent_deck_name)
+      }
+    })
+
+    const sortDecks = (deckMap: Map<number, string>) =>
+      Array.from(deckMap.entries())
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ja'))
+
+    return {
+      my_decks: sortDecks(myDecks),
+      opponent_decks: sortDecks(opponentDecks)
+    }
   }
 
   // CSV Export

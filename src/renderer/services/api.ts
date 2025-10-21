@@ -72,18 +72,25 @@ export const duelAPI = {
 export const statisticsAPI = {
   getDashboard: (year: number, month: number, gameMode: string) =>
     apiCall(() => window.electronAPI.statistics.getDashboard(year, month, gameMode)),
-  getMonthly: (year: number, month: number, gameMode: string) =>
-    apiCall(() => window.electronAPI.statistics.getMonthly(year, month, gameMode)),
-  getMonthlyDeckDistribution: (year: number, month: number, gameMode: string) =>
+  getMonthly: (year: number, month: number, gameMode: string, options?: any) =>
+    apiCall(() => window.electronAPI.statistics.getMonthly(year, month, gameMode, options)),
+  getMonthlyDeckDistribution: (
+    year: number,
+    month: number,
+    gameMode: string,
+    options?: any
+  ) =>
     apiCall(() =>
-      window.electronAPI.statistics.getMonthlyDeckDistribution(year, month, gameMode)
+      window.electronAPI.statistics.getMonthlyDeckDistribution(year, month, gameMode, options)
     ),
-  getRecentDeckDistribution: (gameMode: string, limit: number = 30) =>
-    apiCall(() => window.electronAPI.statistics.getRecentDeckDistribution(gameMode, limit)),
-  getDeckWinRates: (year: number, month: number, gameMode: string) =>
-    apiCall(() => window.electronAPI.statistics.getDeckWinRates(year, month, gameMode)),
-  getTimeSeries: (year: number, month: number, gameMode: string) =>
-    apiCall(() => window.electronAPI.statistics.getTimeSeries(year, month, gameMode)),
-  getMatchupWinrates: (year: number, month: number, gameMode: string) =>
-    apiCall(() => window.electronAPI.statistics.getMatchupWinrates(year, month, gameMode))
+  getRecentDeckDistribution: (gameMode: string, limit: number = 30, options?: any) =>
+    apiCall(() => window.electronAPI.statistics.getRecentDeckDistribution(gameMode, limit, options)),
+  getDeckWinRates: (year: number, month: number, gameMode: string, options?: any) =>
+    apiCall(() => window.electronAPI.statistics.getDeckWinRates(year, month, gameMode, options)),
+  getTimeSeries: (year: number, month: number, gameMode: string, options?: any) =>
+    apiCall(() => window.electronAPI.statistics.getTimeSeries(year, month, gameMode, options)),
+  getMatchupWinrates: (year: number, month: number, gameMode: string, options?: any) =>
+    apiCall(() => window.electronAPI.statistics.getMatchupWinrates(year, month, gameMode, options)),
+  getAvailableDecks: (year: number, month: number, gameMode?: string, options?: any) =>
+    apiCall(() => window.electronAPI.statistics.getAvailableDecks(year, month, gameMode, options))
 }
