@@ -172,6 +172,7 @@
                 variant="outlined"
                 type="datetime-local"
                 :rules="[rules.required]"
+                @update:modelValue="markPlayedDateTouched"
               />
             </v-col>
 
@@ -232,16 +233,20 @@ const opponentDecks = ref<Deck[]>([])
 
 const selectedMyDeck = ref<Deck | string | null>(null)
 const selectedOpponentDeck = ref<Deck | string | null>(null)
+const playedDateTouched = ref(false)
+
+const formatDateToLocalInput = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+const getCurrentLocalDateTime = () => formatDateToLocalInput(new Date())
 
 const defaultForm = (): DuelCreate => {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  const localDateTime = `${year}-${month}-${day}T${hours}:${minutes}`
-
   return {
     deck_id: null,
     opponentDeck_id: null,
@@ -252,7 +257,7 @@ const defaultForm = (): DuelCreate => {
     dc_value: undefined,
     coin: true,
     first_or_second: true,
-    played_date: localDateTime,
+    played_date: getCurrentLocalDateTime(),
     notes: ''
   }
 }
@@ -288,6 +293,10 @@ const localDateTimeToISO = (localDateTime: string): string => {
 
 const isoToLocalDateTime = (isoString: string): string => {
   return isoString.replace(/\.\d{3}Z?$/, '').substring(0, 16)
+}
+
+const markPlayedDateTouched = () => {
+  playedDateTouched.value = true
 }
 
 const fetchDecks = async () => {
@@ -348,6 +357,7 @@ watch(
   () => props.modelValue,
   async (newValue) => {
     if (newValue) {
+      playedDateTouched.value = false
       await fetchDecks()
       if (props.duel) {
         const localDateTime = isoToLocalDateTime(props.duel.played_at)
@@ -374,6 +384,7 @@ watch(
         form.value.game_mode = props.defaultGameMode
         selectedMyDeck.value = null
         selectedOpponentDeck.value = null
+        playedDateTouched.value = false
 
         if (form.value.game_mode === 'RANK') {
           form.value.rank = DEFAULT_RANK
@@ -409,6 +420,10 @@ watch(
 const handleSubmit = async () => {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+
+  if (!isEdit.value && !playedDateTouched.value) {
+    form.value.played_date = getCurrentLocalDateTime()
+  }
 
   loading.value = true
 
@@ -458,6 +473,7 @@ const closeDialog = () => {
   formRef.value?.resetValidation()
   selectedMyDeck.value = null
   selectedOpponentDeck.value = null
+  playedDateTouched.value = false
 }
 </script>
 

@@ -126,7 +126,7 @@
           </v-col>
           <v-col cols="6" sm="4" md="2">
             <stat-card
-              title="先行率"
+              title="先攻率"
               :value="formatPercent(currentStats.go_first_rate)"
               icon="mdi-arrow-up-bold-hexagon-outline"
               color="teal"

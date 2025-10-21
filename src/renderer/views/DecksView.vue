@@ -52,7 +52,7 @@
                     <v-icon class="mr-2" color="primary">mdi-cards</v-icon>
                     <span class="text-h6">自分のデッキ</span>
                   </div>
-                  <v-btn color="primary" prepend-icon="mdi-plus" @click="addPlayerDeck">
+                  <v-btn color="primary" prepend-icon="mdi-plus" @click="openDeckDialog(false)">
                     デッキ追加
                   </v-btn>
                 </div>
@@ -99,7 +99,7 @@
                     <v-icon class="mr-2" color="secondary">mdi-cards-variant</v-icon>
                     <span class="text-h6">対戦相手のデッキ</span>
                   </div>
-                  <v-btn color="secondary" prepend-icon="mdi-plus" @click="addOpponentDeck">
+                  <v-btn color="secondary" prepend-icon="mdi-plus" @click="openDeckDialog(true)">
                     デッキ追加
                   </v-btn>
                 </div>
@@ -140,6 +140,36 @@
         </v-row>
       </v-container>
     </v-main>
+
+    <v-dialog v-model="isDeckDialogOpen" max-width="420">
+      <v-card>
+        <v-card-title class="text-h6">{{ deckDialogTitle }}</v-card-title>
+        <v-card-text class="pt-4">
+          <p class="text-body-2 mb-4">{{ deckDialogDescription }}</p>
+          <v-text-field
+            v-model="deckNameInput"
+            label="デッキ名"
+            variant="outlined"
+            :autofocus="isDeckDialogOpen"
+            :disabled="isSavingDeck"
+            @keydown.enter.prevent="submitDeck"
+          />
+        </v-card-text>
+        <v-card-actions class="justify-end">
+          <v-btn variant="text" :disabled="isSavingDeck" @click="closeDeckDialog">
+            キャンセル
+          </v-btn>
+          <v-btn
+            color="primary"
+            :loading="isSavingDeck"
+            :disabled="!deckNameInput.trim() || isSavingDeck"
+            @click="submitDeck"
+          >
+            追加
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -164,6 +194,21 @@ const navItems = [
 const playerDecks = computed(() => decks.value.filter((d) => d.is_opponent_deck === 0))
 const opponentDecks = computed(() => decks.value.filter((d) => d.is_opponent_deck === 1))
 
+const isDeckDialogOpen = ref(false)
+const isDeckDialogOpponent = ref(false)
+const deckNameInput = ref('')
+const isSavingDeck = ref(false)
+
+const deckDialogTitle = computed(() =>
+  isDeckDialogOpponent.value ? '対戦相手のデッキを追加' : '自分のデッキを追加'
+)
+
+const deckDialogDescription = computed(() =>
+  isDeckDialogOpponent.value
+    ? '対戦相手のデッキ名を入力してください。'
+    : '自分のデッキ名を入力してください。'
+)
+
 const fetchDecks = async () => {
   try {
     decks.value = await deckAPI.getAll()
@@ -173,27 +218,40 @@ const fetchDecks = async () => {
   }
 }
 
-const addPlayerDeck = () => {
-  const name = prompt('デッキ名を入力してください')
-  if (name) {
-    createDeck(name, false)
-  }
+const openDeckDialog = (isOpponent: boolean) => {
+  isDeckDialogOpponent.value = isOpponent
+  deckNameInput.value = ''
+  isSavingDeck.value = false
+  isDeckDialogOpen.value = true
 }
 
-const addOpponentDeck = () => {
-  const name = prompt('相手デッキ名を入力してください')
-  if (name) {
-    createDeck(name, true)
-  }
+const closeDeckDialog = () => {
+  isDeckDialogOpen.value = false
+  deckNameInput.value = ''
+  isSavingDeck.value = false
 }
 
-const createDeck = async (name: string, isOpponent: boolean) => {
+const submitDeck = async () => {
+  const trimmedName = deckNameInput.value.trim()
+  if (!trimmedName) {
+    notificationStore.warning('デッキ名を入力してください')
+    return
+  }
+
   try {
-    await deckAPI.create({ name, is_opponent_deck: isOpponent })
-    notificationStore.success('デッキを追加しました')
-    fetchDecks()
+    isSavingDeck.value = true
+    const isOpponent = isDeckDialogOpponent.value
+    await deckAPI.create({ name: trimmedName, is_opponent_deck: isOpponent })
+    await fetchDecks()
+    notificationStore.success(`デッキ「${trimmedName}」を追加しました`)
+    closeDeckDialog()
   } catch (error) {
-    notificationStore.error('デッキの追加に失敗しました')
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'デッキの追加に失敗しました'
+    notificationStore.error(message)
+    isSavingDeck.value = false
   }
 }
 
