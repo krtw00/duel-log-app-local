@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "description": "Duel Log App - Local Electron Version",
   "main": "dist-electron/main/index.js",
+  "license": "MIT",
+  "author": "krtw00",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/krtw00/duel-log-app-local.git"
+  },
   "scripts": {
     "dev": "vite --config config/vite.config.ts",
     "build": "vite build --config config/vite.config.ts && tsc -p config/tsconfig.main.json && tsc -p config/tsconfig.preload.json",
