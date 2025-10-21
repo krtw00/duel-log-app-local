@@ -61,6 +61,14 @@ npm run electron:build
 
 ```
 duel-log-app-local/
+├── config/                # 設定ファイル
+│   ├── .eslintrc.cjs      # ESLint設定
+│   ├── .prettierrc.json   # Prettier設定
+│   ├── tsconfig.json      # TypeScript基本設定
+│   ├── tsconfig.main.json # Mainプロセス用TypeScript設定
+│   ├── tsconfig.node.json # Node用TypeScript設定
+│   ├── tsconfig.preload.json # Preload用TypeScript設定
+│   └── vite.config.ts     # Vite設定
 ├── src/
 │   ├── main/              # Electronメインプロセス
 │   │   ├── index.ts       # メインプロセスエントリーポイント
@@ -68,20 +76,24 @@ duel-log-app-local/
 │   ├── preload/           # Electronプリロードスクリプト
 │   │   └── index.ts       # IPC通信の公開API
 │   └── renderer/          # Vueフロントエンド
-│       ├── assets/
-│       ├── components/
-│       ├── plugins/
-│       ├── router/
-│       ├── services/
-│       ├── stores/
-│       ├── types/
-│       ├── views/
-│       ├── App.vue
-│       └── main.ts
-├── index.html
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
+│       ├── assets/        # 静的アセット
+│       ├── components/    # Vueコンポーネント
+│       ├── plugins/       # Vueプラグイン（Vuetify等）
+│       ├── router/        # Vue Router設定
+│       ├── services/      # APIサービス
+│       ├── stores/        # Pinia状態管理
+│       ├── types/         # TypeScript型定義
+│       ├── utils/         # ユーティリティ関数
+│       ├── views/         # ページビュー
+│       ├── App.vue        # ルートコンポーネント
+│       └── main.ts        # レンダラープロセスエントリーポイント
+├── public/                # 公開静的ファイル
+├── dist/                  # ビルド出力（レンダラープロセス）
+├── dist-electron/         # ビルド出力（Electronプロセス）
+├── electron-builder/      # Electron Builder設定
+├── index.html             # HTMLエントリーポイント
+├── package.json           # プロジェクト依存関係
+└── README.md              # このファイル
 ```
 
 ## データベース

@@ -7,6 +7,8 @@ import { fileURLToPath, URL } from 'node:url'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  root: fileURLToPath(new URL('..', import.meta.url)),
+  publicDir: 'public',
   plugins: [
     vue(),
     vuetify({
@@ -40,7 +42,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src/renderer', import.meta.url))
+      '@': fileURLToPath(new URL('../src/renderer', import.meta.url))
     }
   },
   base: './',

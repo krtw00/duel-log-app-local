@@ -21,17 +21,17 @@
     "noFallthroughCasesInSwitch": true,
 
     /* Paths */
-    "baseUrl": ".",
+    "baseUrl": "..",
     "paths": {
       "@/*": ["src/renderer/*"]
     }
   },
   "include": [
-    "src/**/*.ts",
-    "src/**/*.d.ts",
-    "src/**/*.tsx",
-    "src/**/*.vue"
+    "../src/**/*.ts",
+    "../src/**/*.d.ts",
+    "../src/**/*.tsx",
+    "../src/**/*.vue"
   ],
-  "exclude": ["node_modules", "dist", "dist-electron"],
+  "exclude": ["../node_modules", "../dist", "../dist-electron"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

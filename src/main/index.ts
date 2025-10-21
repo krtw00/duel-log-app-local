@@ -147,7 +147,7 @@ ipcMain.handle('statistics:getDeckWinRates', async (_, year, month, gameMode) =>
 })
 
 ipcMain.handle('statistics:getTimeSeries', async (_, year, month, gameMode) => {
-  return database.getTimeSeriesStatistics(year, month, gameMode)
+  return database.getMonthlyTimeSeriesStatistics(year, month, gameMode)
 })
 
 ipcMain.handle('statistics:getMatchupWinrates', async (_, year, month, gameMode) => {
