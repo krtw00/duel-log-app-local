@@ -1,0 +1,3 @@
+# リポジトリから除外したファイル一覧
+
+- .claude/settings.local.json : 手動誤配置のため削除
