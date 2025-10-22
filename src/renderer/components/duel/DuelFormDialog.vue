@@ -234,6 +234,7 @@ const opponentDecks = ref<Deck[]>([])
 const selectedMyDeck = ref<Deck | string | null>(null)
 const selectedOpponentDeck = ref<Deck | string | null>(null)
 const playedDateTouched = ref(false)
+const latestDuels = ref<Duel[]>([])
 
 const formatDateToLocalInput = (date: Date): string => {
   const year = date.getFullYear()
@@ -309,6 +310,90 @@ const fetchDecks = async () => {
   }
 }
 
+const loadLatestDuels = async () => {
+  try {
+    const duels = (await duelAPI.getAll()) as Duel[] | undefined
+    latestDuels.value = Array.isArray(duels) ? duels : []
+  } catch (error) {
+    console.error('Failed to fetch latest duels:', error)
+    latestDuels.value = []
+  }
+}
+
+const findDeckSelection = (duel?: Duel | null): Deck | string | null => {
+  if (!duel) {
+    return null
+  }
+
+  if (duel.player_deck_id) {
+    const matchedDeck = myDecks.value.find((deck) => deck.id === duel.player_deck_id)
+    if (matchedDeck) {
+      return matchedDeck
+    }
+  }
+
+  if (duel.player_deck_name) {
+    return duel.player_deck_name
+  }
+
+  if (duel.deck?.name) {
+    return duel.deck.name
+  }
+
+  return null
+}
+
+const ensureDefaultsForMode = (mode: GameMode) => {
+  if (mode === 'RANK') {
+    if (form.value.rank === undefined || form.value.rank === null) {
+      form.value.rank = DEFAULT_RANK
+    }
+  } else if (mode === 'RATE') {
+    if (form.value.rate_value === undefined || form.value.rate_value === null) {
+      form.value.rate_value = DEFAULT_RATE
+    }
+  } else if (mode === 'DC') {
+    if (form.value.dc_value === undefined || form.value.dc_value === null) {
+      form.value.dc_value = DEFAULT_DC
+    }
+  }
+}
+
+const applyLatestDefaultsForMode = (mode: GameMode) => {
+  if (isEdit.value) {
+    return
+  }
+
+  const duels = latestDuels.value
+  const latestModeDuel = duels.find((duel) => duel.game_mode === mode)
+  const fallbackDuel = duels[0]
+
+  selectedMyDeck.value = findDeckSelection(latestModeDuel ?? fallbackDuel ?? null)
+
+  if (mode === 'RANK') {
+    const rankSource =
+      latestModeDuel ?? duels.find((duel) => duel.game_mode === 'RANK' && duel.rank_value != null)
+    if (rankSource && typeof rankSource.rank_value === 'number') {
+      form.value.rank = rankSource.rank_value
+    }
+  } else if (mode === 'RATE') {
+    const rateSource =
+      latestModeDuel ??
+      duels.find((duel) => duel.game_mode === 'RATE' && duel.rate_value != null)
+    if (rateSource && typeof rateSource.rate_value === 'number') {
+      form.value.rate_value = rateSource.rate_value
+    }
+  } else if (mode === 'DC') {
+    const dcSource =
+      latestModeDuel ?? duels.find((duel) => duel.game_mode === 'DC' && duel.dc_value != null)
+    if (dcSource && typeof dcSource.dc_value === 'number') {
+      form.value.dc_value = dcSource.dc_value
+    }
+  }
+
+  ensureDefaultsForMode(mode)
+}
+
 const createDeckIfNeeded = async (name: string, isOpponent: boolean): Promise<number | null> => {
   try {
     const trimmedName = name.trim()
@@ -381,18 +466,14 @@ watch(
           opponentDecks.value.find((d) => d.id === props.duel?.opponent_deck_id) || null
       } else {
         form.value = defaultForm()
-        form.value.game_mode = props.defaultGameMode
         selectedMyDeck.value = null
         selectedOpponentDeck.value = null
         playedDateTouched.value = false
 
-        if (form.value.game_mode === 'RANK') {
-          form.value.rank = DEFAULT_RANK
-        } else if (form.value.game_mode === 'RATE') {
-          form.value.rate_value = DEFAULT_RATE
-        } else if (form.value.game_mode === 'DC') {
-          form.value.dc_value = DEFAULT_DC
-        }
+        await loadLatestDuels()
+
+        form.value.game_mode = props.defaultGameMode
+        applyLatestDefaultsForMode(form.value.game_mode)
       }
     }
   }
@@ -400,20 +481,18 @@ watch(
 
 watch(
   () => form.value.game_mode,
-  (newMode) => {
-    if (isEdit.value) return
+  async (newMode) => {
+    if (isEdit.value || !props.modelValue) return
 
     form.value.rank = undefined
     form.value.rate_value = undefined
     form.value.dc_value = undefined
 
-    if (newMode === 'RANK') {
-      form.value.rank = DEFAULT_RANK
-    } else if (newMode === 'RATE') {
-      form.value.rate_value = DEFAULT_RATE
-    } else if (newMode === 'DC') {
-      form.value.dc_value = DEFAULT_DC
+    if (!latestDuels.value.length) {
+      await loadLatestDuels()
     }
+
+    applyLatestDefaultsForMode(newMode)
   }
 )
 
