@@ -87,39 +87,72 @@
             </v-col>
 
             <v-col cols="12" md="4">
-              <v-select
-                v-model="form.coin"
-                :items="coinOptions"
-                label="コイン"
-                prepend-inner-icon="mdi-poker-chip"
-                variant="outlined"
-                color="primary"
-                :rules="[rules.required]"
-              />
+              <div class="radio-group-wrapper">
+                <label class="radio-label">
+                  <v-icon class="mr-2" size="small">mdi-poker-chip</v-icon>
+                  コイン
+                </label>
+                <v-radio-group
+                  v-model="form.coin"
+                  inline
+                  color="primary"
+                  :rules="[rules.required]"
+                  hide-details="auto"
+                >
+                  <v-radio
+                    v-for="option in coinOptions"
+                    :key="option.value"
+                    :label="option.title"
+                    :value="option.value"
+                  />
+                </v-radio-group>
+              </div>
             </v-col>
 
             <v-col cols="12" md="4">
-              <v-select
-                v-model="form.first_or_second"
-                :items="turnOptions"
-                label="先攻/後攻"
-                prepend-inner-icon="mdi-swap-horizontal"
-                variant="outlined"
-                color="primary"
-                :rules="[rules.required]"
-              />
+              <div class="radio-group-wrapper">
+                <label class="radio-label">
+                  <v-icon class="mr-2" size="small">mdi-swap-horizontal</v-icon>
+                  先攻/後攻
+                </label>
+                <v-radio-group
+                  v-model="form.first_or_second"
+                  inline
+                  color="primary"
+                  :rules="[rules.required]"
+                  hide-details="auto"
+                >
+                  <v-radio
+                    v-for="option in turnOptions"
+                    :key="option.value"
+                    :label="option.title"
+                    :value="option.value"
+                  />
+                </v-radio-group>
+              </div>
             </v-col>
 
             <v-col cols="12" md="4">
-              <v-select
-                v-model="form.result"
-                :items="resultOptions"
-                label="勝敗"
-                prepend-inner-icon="mdi-trophy"
-                variant="outlined"
-                :color="form.result ? 'success' : 'error'"
-                :rules="[rules.required]"
-              />
+              <div class="radio-group-wrapper">
+                <label class="radio-label">
+                  <v-icon class="mr-2" size="small">mdi-trophy</v-icon>
+                  勝敗
+                </label>
+                <v-radio-group
+                  v-model="form.result"
+                  inline
+                  :rules="[rules.required]"
+                  hide-details="auto"
+                >
+                  <v-radio
+                    v-for="option in resultOptions"
+                    :key="option.value"
+                    :label="option.title"
+                    :value="option.value"
+                    :color="option.color"
+                  />
+                </v-radio-group>
+              </div>
             </v-col>
 
             <v-col v-if="form.game_mode === 'RANK'" cols="12" md="6">
@@ -278,8 +311,8 @@ const turnOptions = [
 ]
 
 const resultOptions = [
-  { title: '勝ち', value: true },
-  { title: '負け', value: false }
+  { title: '勝ち', value: true, color: 'success' },
+  { title: '負け', value: false, color: 'error' }
 ]
 
 const rules = {
@@ -587,6 +620,25 @@ const closeDialog = () => {
   }
 }
 
+.radio-group-wrapper {
+  padding: 12px 16px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 6px;
+  background-color: rgba(128, 128, 128, 0.08);
+
+  .radio-label {
+    display: flex;
+    align-items: center;
+    font-size: 0.875rem;
+    color: rgba(128, 128, 128, 0.8);
+    margin-bottom: 8px;
+  }
+
+  :deep(.v-selection-control-group) {
+    gap: 16px;
+  }
+}
+
 @media (max-width: 599px) {
   .duel-form-card {
     .v-card-title {
@@ -607,6 +659,12 @@ const closeDialog = () => {
       min-width: 60px;
       padding: 0 12px;
       font-size: 0.875rem;
+    }
+  }
+
+  .radio-group-wrapper {
+    :deep(.v-selection-control-group) {
+      gap: 8px;
     }
   }
 }
