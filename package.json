@@ -1,6 +1,6 @@
 {
   "name": "duel-log-app-local",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Duel Log App - Local Electron Version (secured and updated)",
   "main": "dist-electron/main/index.js",
   "license": "MIT",
