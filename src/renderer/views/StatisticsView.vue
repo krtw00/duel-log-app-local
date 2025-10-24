@@ -178,8 +178,13 @@
                     <duel-table
                       :duels="monthlyDuelsByMode[mode] || []"
                       :loading="monthlyDuelsLoading"
-                      :show-actions="false"
-                      table-height="350px"
+                      :hide-columns="['coin', 'first_or_second', 'notes', 'actions']"
+                      :items-per-page-options="[
+                        { value: 10, title: '10' },
+                        { value: 25, title: '25' },
+                        { value: 50, title: '50' },
+                        { value: -1, title: 'All' }
+                      ]"
                     />
                   </v-card-text>
                 </v-card>

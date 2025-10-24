@@ -8,7 +8,8 @@
     density="comfortable"
     mobile-breakpoint="sm"
     fixed-header
-    height="70vh"
+    :items-per-page="itemsPerPage"
+    :items-per-page-options="itemsPerPageOptions"
   >
     <!-- No.カラム -->
     <template #[`item.no`]="{ index }">
@@ -118,14 +119,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, withDefaults } from 'vue'
 import { Duel } from '@/types'
 import { getRankName } from '@/utils/ranks'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   duels: Duel[]
   loading: boolean
-}>()
+  hideColumns?: string[]
+  itemsPerPage?: number
+  itemsPerPageOptions?: any[]
+}>(), {
+  itemsPerPage: 10,
+  itemsPerPageOptions: () => [{value: 10, title: '10'}]
+})
 
 defineEmits<{
   refresh: []
@@ -146,7 +153,7 @@ const formattedDuels = computed(() => {
   }))
 })
 
-const headers = [
+const allHeaders = [
   { title: 'No.', key: 'no', sortable: false, width: 60 },
   { title: '使用デッキ', key: 'deck', sortable: false },
   { title: '相手デッキ', key: 'opponentdeck', sortable: false },
@@ -158,6 +165,13 @@ const headers = [
   { title: 'プレイ日時', key: 'played_date', sortable: true, class: 'hidden-sm-and-down' },
   { title: 'アクション', key: 'actions', sortable: false, width: 120, align: 'center' }
 ] as const
+
+const headers = computed(() => {
+  if (!props.hideColumns) {
+    return allHeaders
+  }
+  return allHeaders.filter((header) => !props.hideColumns?.includes(header.key))
+})
 
 const formatDate = (dateString: string) => {
   const cleanedString = dateString.replace(/\.\d{3}Z?$/, '')
