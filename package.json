@@ -54,7 +54,7 @@
     "vite-plugin-electron-renderer": "^0.14.5",
     "vite-plugin-vuetify": "^2.1.0",
     "vue-tsc": "^2.1.6",
-    "wait-on": "^8.0.2"
+    "wait-on": "^8.0.5"
   },
   "build": {
     "appId": "com.duellog.app",
