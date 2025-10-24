@@ -144,7 +144,7 @@
           <v-window-item v-for="mode in ['RANK', 'RATE', 'EVENT', 'DC']" :key="mode" :value="mode">
             <v-row>
               <!-- 月間デッキ分布 -->
-              <v-col cols="12">
+              <v-col cols="12" lg="6">
                 <v-card class="stats-card">
                   <v-card-title>月間デッキ分布 ({{ currentMonth }})</v-card-title>
                   <v-card-text>
@@ -161,6 +161,26 @@
                       <v-icon size="64" color="grey">mdi-chart-pie</v-icon>
                       <p class="text-body-1 text-grey mt-4">データがありません</p>
                     </div>
+                  </v-card-text>
+                </v-card>
+              </v-col>
+
+              <!-- 月間対戦一覧 -->
+              <v-col cols="12" lg="6">
+                <v-card class="stats-card">
+                  <v-card-title class="d-flex align-center justify-space-between">
+                    <span>月間対戦一覧 ({{ currentMonth }})</span>
+                    <v-chip size="small" variant="outlined">
+                      全 {{ monthlyDuelsByMode[mode]?.length || 0 }} 件
+                    </v-chip>
+                  </v-card-title>
+                  <v-card-text>
+                    <duel-table
+                      :duels="monthlyDuelsByMode[mode] || []"
+                      :loading="monthlyDuelsLoading"
+                      :show-actions="false"
+                      table-height="350px"
+                    />
                   </v-card-text>
                 </v-card>
               </v-col>
@@ -259,8 +279,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import AppBar from '@/components/layout/AppBar.vue';
+import DuelTable from '@/components/duel/DuelTable.vue';
 import { useThemeStore } from '@/stores/theme';
-import { statisticsAPI } from '@/services/api';
+import { statisticsAPI, duelAPI } from '@/services/api';
 import { useNotificationStore } from '@/stores/notification';
 
 const themeStore = useThemeStore();
@@ -395,6 +416,14 @@ const createInitialStats = (): AllStatisticsData => {
 };
 
 const statisticsByMode = ref<AllStatisticsData>(createInitialStats());
+const monthlyDuelsByMode = ref<Record<string, any[]>>({
+  RANK: [],
+  RATE: [],
+  EVENT: [],
+  DC: [],
+});
+const monthlyDuelsLoading = ref(false);
+
 
 const buildStatisticsOptions = () => {
   const options: Record<string, number> = {};
@@ -437,9 +466,33 @@ const fetchAvailableDecks = async () => {
   }
 };
 
+const fetchMonthlyDuels = async () => {
+  monthlyDuelsLoading.value = true;
+  try {
+    const modes = ['RANK', 'RATE', 'EVENT', 'DC'];
+    const options = buildStatisticsOptions();
+    for (const mode of modes) {
+      const filters = {
+        year: selectedYear.value,
+        month: selectedMonth.value,
+        game_mode: mode,
+        ...options
+      };
+      const duels = await duelAPI.getAll(filters);
+      monthlyDuelsByMode.value[mode] = duels || [];
+    }
+  } catch (error) {
+    console.error('Failed to fetch monthly duels:', error);
+    notificationStore.error('月間対戦一覧の取得に失敗しました');
+  } finally {
+    monthlyDuelsLoading.value = false;
+  }
+};
+
 const fetchStatistics = async () => {
   loading.value = true;
   try {
+    await fetchMonthlyDuels();
     const modes = ['RANK', 'RATE', 'EVENT', 'DC'];
     const options = buildStatisticsOptions();
 
