@@ -7,6 +7,9 @@ type StatisticsFilterOptions = {
   opponentDeckId?: number
 }
 
+// Schema version for migration tracking
+const CURRENT_SCHEMA_VERSION = 2
+
 export class Database {
   private db: BetterSqlite3.Database
 
@@ -15,9 +18,25 @@ export class Database {
     this.db.pragma('journal_mode = WAL')
     this.initTables()
     this.runMigrations()
+    this.createIndexes()
   }
 
   private initTables() {
+    // Schema version tracking table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Initialize schema version if not exists
+    const versionRow = this.db.prepare('SELECT version FROM schema_version WHERE id = 1').get() as { version: number } | undefined
+    if (!versionRow) {
+      this.db.prepare('INSERT INTO schema_version (id, version) VALUES (1, 1)').run()
+    }
+
     // User table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS user (
@@ -42,62 +61,261 @@ export class Database {
         .run('User', 0, 'light')
     }
 
-    // Deck table
+    // Deck table (new schema - aligned with Web version)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS deck (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        is_opponent_deck INTEGER NOT NULL DEFAULT 0,
-        is_archived INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        is_opponent INTEGER NOT NULL DEFAULT 0,
+        active INTEGER NOT NULL DEFAULT 1,
+        createdat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `)
 
-    // Duel table
+    // Duel table (new schema - aligned with Web version)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS duel (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        player_deck_id INTEGER NOT NULL,
+        deck_id INTEGER NOT NULL,
         opponent_deck_id INTEGER NOT NULL,
-        result TEXT NOT NULL CHECK(result IN ('win', 'loss')),
-        game_mode TEXT NOT NULL CHECK(game_mode IN ('RANK', 'RATE', 'EVENT', 'DC')),
-        rank_value INTEGER,
-        rate_value INTEGER,
+        is_win INTEGER NOT NULL,
+        game_mode TEXT NOT NULL CHECK(game_mode IN ('RANK', 'RATE', 'EVENT', 'DC')) DEFAULT 'RANK',
+        rank INTEGER,
+        rate_value REAL,
         dc_value INTEGER,
-        coin_result TEXT CHECK(coin_result IN ('win', 'loss')),
-        turn_order TEXT CHECK(turn_order IN ('first', 'second')),
-        played_at TEXT NOT NULL,
+        won_coin_toss INTEGER NOT NULL,
+        is_going_first INTEGER NOT NULL,
+        played_date TEXT NOT NULL,
         notes TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (player_deck_id) REFERENCES deck(id),
+        create_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        update_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (deck_id) REFERENCES deck(id),
         FOREIGN KEY (opponent_deck_id) REFERENCES deck(id)
       )
     `)
+  }
 
-    // Create indexes for better performance
+  private createIndexes() {
+    // Create indexes for better performance (called after migrations)
     this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_duel_played_at ON duel(played_at);
+      CREATE INDEX IF NOT EXISTS idx_duel_played_date ON duel(played_date);
       CREATE INDEX IF NOT EXISTS idx_duel_game_mode ON duel(game_mode);
-      CREATE INDEX IF NOT EXISTS idx_duel_player_deck_id ON duel(player_deck_id);
+      CREATE INDEX IF NOT EXISTS idx_duel_deck_id ON duel(deck_id);
       CREATE INDEX IF NOT EXISTS idx_duel_opponent_deck_id ON duel(opponent_deck_id);
     `)
   }
 
   private runMigrations() {
-    // Add is_archived column to deck table if it doesn't exist
-    const columns = this.db
-      .prepare("PRAGMA table_info(deck)")
-      .all() as Array<{ name: string }>
+    const versionRow = this.db.prepare('SELECT version FROM schema_version WHERE id = 1').get() as { version: number } | undefined
+    const currentVersion = versionRow?.version || 1
 
-    const hasArchivedColumn = columns.some(col => col.name === 'is_archived')
-
-    if (!hasArchivedColumn) {
-      this.db.exec(`
-        ALTER TABLE deck ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0
-      `)
+    if (currentVersion < CURRENT_SCHEMA_VERSION) {
+      console.log(`Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`)
+      this.migrateFromV1ToV2()
+      this.db.prepare('UPDATE schema_version SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(CURRENT_SCHEMA_VERSION)
     }
+
+    // Legacy migration: Check for old column names and migrate if needed
+    this.migrateLegacySchema()
+  }
+
+  private migrateLegacySchema() {
+    // Check if we have old schema (v1 column names)
+    const deckColumns = this.db.prepare("PRAGMA table_info(deck)").all() as Array<{ name: string }>
+    const duelColumns = this.db.prepare("PRAGMA table_info(duel)").all() as Array<{ name: string }>
+
+    const deckColumnNames = deckColumns.map(c => c.name)
+    const duelColumnNames = duelColumns.map(c => c.name)
+
+    // Detect old deck schema (has is_opponent_deck instead of is_opponent)
+    const hasOldDeckSchema = deckColumnNames.includes('is_opponent_deck') && !deckColumnNames.includes('is_opponent')
+
+    // Detect old duel schema (has player_deck_id instead of deck_id, result instead of is_win)
+    const hasOldDuelSchema = duelColumnNames.includes('player_deck_id') || duelColumnNames.includes('result')
+
+    if (hasOldDeckSchema || hasOldDuelSchema) {
+      console.log('Detected legacy schema, performing migration...')
+      this.migrateLegacyToNewSchema(hasOldDeckSchema, hasOldDuelSchema, deckColumnNames, duelColumnNames)
+    }
+  }
+
+  private migrateLegacyToNewSchema(
+    hasOldDeckSchema: boolean,
+    hasOldDuelSchema: boolean,
+    deckColumnNames: string[],
+    duelColumnNames: string[]
+  ) {
+    // Use transaction for safety
+    const migrate = this.db.transaction(() => {
+      // Migrate deck table
+      if (hasOldDeckSchema) {
+        console.log('Migrating deck table from legacy schema...')
+
+        // Create new deck table
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS deck_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            is_opponent INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,
+            createdat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updatedat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `)
+
+        // Copy data with column mapping
+        // is_opponent_deck -> is_opponent
+        // is_archived -> active (inverted: is_archived=0 means active=1)
+        const hasIsArchived = deckColumnNames.includes('is_archived')
+        const hasCreatedAt = deckColumnNames.includes('created_at')
+        const hasUpdatedAt = deckColumnNames.includes('updated_at')
+
+        let selectClause = 'id, name, is_opponent_deck as is_opponent'
+        if (hasIsArchived) {
+          selectClause += ', CASE WHEN is_archived = 1 THEN 0 ELSE 1 END as active'
+        } else {
+          selectClause += ', 1 as active'
+        }
+        if (hasCreatedAt) {
+          selectClause += ', created_at as createdat'
+        } else {
+          selectClause += ", CURRENT_TIMESTAMP as createdat"
+        }
+        if (hasUpdatedAt) {
+          selectClause += ', updated_at as updatedat'
+        } else {
+          selectClause += ", CURRENT_TIMESTAMP as updatedat"
+        }
+
+        this.db.exec(`INSERT INTO deck_new (id, name, is_opponent, active, createdat, updatedat) SELECT ${selectClause} FROM deck`)
+        this.db.exec('DROP TABLE deck')
+        this.db.exec('ALTER TABLE deck_new RENAME TO deck')
+      }
+
+      // Migrate duel table
+      if (hasOldDuelSchema) {
+        console.log('Migrating duel table from legacy schema...')
+
+        // Create new duel table
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS duel_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            deck_id INTEGER NOT NULL,
+            opponent_deck_id INTEGER NOT NULL,
+            is_win INTEGER NOT NULL,
+            game_mode TEXT NOT NULL CHECK(game_mode IN ('RANK', 'RATE', 'EVENT', 'DC')) DEFAULT 'RANK',
+            rank INTEGER,
+            rate_value REAL,
+            dc_value INTEGER,
+            won_coin_toss INTEGER NOT NULL,
+            is_going_first INTEGER NOT NULL,
+            played_date TEXT NOT NULL,
+            notes TEXT,
+            create_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            update_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (deck_id) REFERENCES deck(id),
+            FOREIGN KEY (opponent_deck_id) REFERENCES deck(id)
+          )
+        `)
+
+        // Build select clause based on available columns
+        const hasPlayerDeckId = duelColumnNames.includes('player_deck_id')
+        const hasDeckId = duelColumnNames.includes('deck_id')
+        const hasResult = duelColumnNames.includes('result')
+        const hasIsWin = duelColumnNames.includes('is_win')
+        const hasRankValue = duelColumnNames.includes('rank_value')
+        const hasRank = duelColumnNames.includes('rank')
+        const hasCoinResult = duelColumnNames.includes('coin_result')
+        const hasWonCoinToss = duelColumnNames.includes('won_coin_toss')
+        const hasTurnOrder = duelColumnNames.includes('turn_order')
+        const hasIsGoingFirst = duelColumnNames.includes('is_going_first')
+        const hasPlayedAt = duelColumnNames.includes('played_at')
+        const hasPlayedDate = duelColumnNames.includes('played_date')
+        const hasCreatedAt = duelColumnNames.includes('created_at')
+        const hasCreateDate = duelColumnNames.includes('create_date')
+        const hasUpdatedAt = duelColumnNames.includes('updated_at')
+        const hasUpdateDate = duelColumnNames.includes('update_date')
+
+        // deck_id mapping
+        const deckIdExpr = hasPlayerDeckId ? 'player_deck_id' : (hasDeckId ? 'deck_id' : '0')
+
+        // is_win mapping (result='win' -> 1, result='loss' -> 0)
+        const isWinExpr = hasResult
+          ? "CASE WHEN result = 'win' THEN 1 ELSE 0 END"
+          : (hasIsWin ? 'is_win' : '0')
+
+        // rank mapping
+        const rankExpr = hasRankValue ? 'rank_value' : (hasRank ? 'rank' : 'NULL')
+
+        // won_coin_toss mapping (coin_result='win' -> 1, coin_result='loss' -> 0)
+        const wonCoinTossExpr = hasCoinResult
+          ? "CASE WHEN coin_result = 'win' THEN 1 ELSE 0 END"
+          : (hasWonCoinToss ? 'won_coin_toss' : '0')
+
+        // is_going_first mapping (turn_order='first' -> 1, turn_order='second' -> 0)
+        const isGoingFirstExpr = hasTurnOrder
+          ? "CASE WHEN turn_order = 'first' THEN 1 ELSE 0 END"
+          : (hasIsGoingFirst ? 'is_going_first' : '0')
+
+        // played_date mapping
+        const playedDateExpr = hasPlayedAt ? 'played_at' : (hasPlayedDate ? 'played_date' : 'CURRENT_TIMESTAMP')
+
+        // create_date mapping
+        const createDateExpr = hasCreatedAt ? 'created_at' : (hasCreateDate ? 'create_date' : 'CURRENT_TIMESTAMP')
+
+        // update_date mapping
+        const updateDateExpr = hasUpdatedAt ? 'updated_at' : (hasUpdateDate ? 'update_date' : 'CURRENT_TIMESTAMP')
+
+        const insertSql = `
+          INSERT INTO duel_new (
+            id, deck_id, opponent_deck_id, is_win, game_mode,
+            rank, rate_value, dc_value, won_coin_toss, is_going_first,
+            played_date, notes, create_date, update_date
+          )
+          SELECT
+            id,
+            ${deckIdExpr} as deck_id,
+            opponent_deck_id,
+            ${isWinExpr} as is_win,
+            COALESCE(game_mode, 'RANK') as game_mode,
+            ${rankExpr} as rank,
+            rate_value,
+            dc_value,
+            ${wonCoinTossExpr} as won_coin_toss,
+            ${isGoingFirstExpr} as is_going_first,
+            ${playedDateExpr} as played_date,
+            notes,
+            ${createDateExpr} as create_date,
+            ${updateDateExpr} as update_date
+          FROM duel
+        `
+
+        this.db.exec(insertSql)
+        this.db.exec('DROP TABLE duel')
+        this.db.exec('ALTER TABLE duel_new RENAME TO duel')
+
+        // Recreate indexes
+        this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_duel_played_date ON duel(played_date);
+          CREATE INDEX IF NOT EXISTS idx_duel_game_mode ON duel(game_mode);
+          CREATE INDEX IF NOT EXISTS idx_duel_deck_id ON duel(deck_id);
+          CREATE INDEX IF NOT EXISTS idx_duel_opponent_deck_id ON duel(opponent_deck_id);
+        `)
+      }
+
+      // Update schema version
+      this.db.prepare('UPDATE schema_version SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(CURRENT_SCHEMA_VERSION)
+    })
+
+    migrate()
+    console.log('Legacy schema migration completed successfully')
+  }
+
+  private migrateFromV1ToV2() {
+    // This is called when schema_version table exists but version is 1
+    // The actual migration logic is in migrateLegacySchema
+    // This method can be used for future incremental migrations
   }
 
   private applyStatisticsFilters(duels: any[], options: StatisticsFilterOptions = {}) {
@@ -107,7 +325,7 @@ export class Database {
 
     if (rangeStart !== undefined || rangeEnd !== undefined) {
       const sorted = filtered.sort(
-        (a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime()
+        (a, b) => new Date(b.played_date).getTime() - new Date(a.played_date).getTime()
       )
       const startIndex = Math.max(0, (rangeStart ?? 1) - 1)
       const rawEnd = rangeEnd !== undefined ? Math.max(rangeEnd, startIndex + 1) : sorted.length
@@ -115,7 +333,7 @@ export class Database {
     }
 
     if (myDeckId !== undefined && myDeckId !== null) {
-      filtered = filtered.filter((duel) => duel.player_deck_id === myDeckId)
+      filtered = filtered.filter((duel) => duel.deck_id === myDeckId)
     }
 
     if (opponentDeckId !== undefined && opponentDeckId !== null) {
@@ -163,15 +381,15 @@ export class Database {
   // Deck operations
   getAllDecks() {
     return this.db
-      .prepare('SELECT * FROM deck WHERE is_archived = 0 ORDER BY created_at DESC')
+      .prepare('SELECT * FROM deck WHERE active = 1 ORDER BY createdat DESC')
       .all()
   }
 
   createDeck(deckData: { name: string; is_opponent_deck: boolean }) {
-    // Check for duplicate deck name among non-archived decks
+    // Check for duplicate deck name among active decks
     const existingDeck = this.db
       .prepare(
-        'SELECT * FROM deck WHERE name = ? AND is_opponent_deck = ? AND is_archived = 0'
+        'SELECT * FROM deck WHERE name = ? AND is_opponent = ? AND active = 1'
       )
       .get(deckData.name, deckData.is_opponent_deck ? 1 : 0)
 
@@ -180,7 +398,7 @@ export class Database {
     }
 
     const result = this.db
-      .prepare('INSERT INTO deck (name, is_opponent_deck) VALUES (?, ?)')
+      .prepare('INSERT INTO deck (name, is_opponent) VALUES (?, ?)')
       .run(deckData.name, deckData.is_opponent_deck ? 1 : 0)
 
     return this.db.prepare('SELECT * FROM deck WHERE id = ?').get(result.lastInsertRowid)
@@ -196,16 +414,16 @@ export class Database {
 
     // Check for duplicate deck name if name is being updated
     if (deckData.name !== undefined && deckData.name !== currentDeck.name) {
-      const isOpponentDeck =
+      const isOpponent =
         deckData.is_opponent_deck !== undefined
           ? deckData.is_opponent_deck
-          : currentDeck.is_opponent_deck
+          : currentDeck.is_opponent
 
       const existingDeck = this.db
         .prepare(
-          'SELECT * FROM deck WHERE name = ? AND is_opponent_deck = ? AND is_archived = 0 AND id != ?'
+          'SELECT * FROM deck WHERE name = ? AND is_opponent = ? AND active = 1 AND id != ?'
         )
-        .get(deckData.name, isOpponentDeck ? 1 : 0, id)
+        .get(deckData.name, isOpponent ? 1 : 0, id)
 
       if (existingDeck) {
         throw new Error('同じ名前のデッキが既に存在します')
@@ -220,11 +438,11 @@ export class Database {
       values.push(deckData.name)
     }
     if (deckData.is_opponent_deck !== undefined) {
-      updates.push('is_opponent_deck = ?')
+      updates.push('is_opponent = ?')
       values.push(deckData.is_opponent_deck ? 1 : 0)
     }
 
-    updates.push('updated_at = CURRENT_TIMESTAMP')
+    updates.push('updatedat = CURRENT_TIMESTAMP')
     values.push(id)
 
     const sql = `UPDATE deck SET ${updates.join(', ')} WHERE id = ?`
@@ -234,18 +452,18 @@ export class Database {
   }
 
   deleteDeck(id: number) {
-    // Soft delete: mark deck as archived instead of deleting
+    // Soft delete: mark deck as inactive instead of deleting
     // This preserves foreign key relationships with duel records
     this.db
-      .prepare('UPDATE deck SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .prepare('UPDATE deck SET active = 0, updatedat = CURRENT_TIMESTAMP WHERE id = ?')
       .run(id)
     return { success: true }
   }
 
   archiveAllDecks() {
-    // Archive all non-archived decks by setting is_archived = 1
+    // Archive all active decks by setting active = 0
     const result = this.db
-      .prepare('UPDATE deck SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE is_archived = 0')
+      .prepare('UPDATE deck SET active = 0, updatedat = CURRENT_TIMESTAMP WHERE active = 1')
       .run()
 
     return { success: true, archived_count: result.changes }
@@ -265,18 +483,18 @@ export class Database {
         pd.name as player_deck_name,
         od.name as opponent_deck_name
       FROM duel d
-      JOIN deck pd ON d.player_deck_id = pd.id
+      JOIN deck pd ON d.deck_id = pd.id
       JOIN deck od ON d.opponent_deck_id = od.id
       WHERE 1=1
     `
     const params: any[] = []
 
     if (filters?.year) {
-      sql += ` AND strftime('%Y', d.played_at) = ?`
+      sql += ` AND strftime('%Y', d.played_date) = ?`
       params.push(filters.year.toString())
     }
     if (filters?.month) {
-      sql += ` AND strftime('%m', d.played_at) = ?`
+      sql += ` AND strftime('%m', d.played_date) = ?`
       params.push(filters.month.toString().padStart(2, '0'))
     }
     if (filters?.game_mode) {
@@ -284,7 +502,7 @@ export class Database {
       params.push(filters.game_mode)
     }
     if (filters?.player_deck_id) {
-      sql += ` AND d.player_deck_id = ?`
+      sql += ` AND d.deck_id = ?`
       params.push(filters.player_deck_id)
     }
     if (filters?.opponent_deck_id) {
@@ -292,7 +510,7 @@ export class Database {
       params.push(filters.opponent_deck_id)
     }
 
-    sql += ` ORDER BY d.played_at DESC`
+    sql += ` ORDER BY d.played_date DESC`
 
     return this.db.prepare(sql).all(...params)
   }
@@ -306,7 +524,7 @@ export class Database {
         pd.name as player_deck_name,
         od.name as opponent_deck_name
       FROM duel d
-      JOIN deck pd ON d.player_deck_id = pd.id
+      JOIN deck pd ON d.deck_id = pd.id
       JOIN deck od ON d.opponent_deck_id = od.id
       WHERE d.id = ?
     `
@@ -315,27 +533,35 @@ export class Database {
   }
 
   createDuel(duelData: any) {
+    // Convert old format to new format if needed
+    const deckId = duelData.deck_id ?? duelData.player_deck_id
+    const isWin = duelData.is_win ?? (duelData.result === 'win' ? 1 : 0)
+    const rank = duelData.rank ?? duelData.rank_value
+    const wonCoinToss = duelData.won_coin_toss ?? (duelData.coin_result === 'win' ? 1 : 0)
+    const isGoingFirst = duelData.is_going_first ?? (duelData.turn_order === 'first' ? 1 : 0)
+    const playedDate = duelData.played_date ?? duelData.played_at
+
     const result = this.db
       .prepare(
         `
       INSERT INTO duel (
-        player_deck_id, opponent_deck_id, result, game_mode,
-        rank_value, rate_value, dc_value, coin_result, turn_order,
-        played_at, notes
+        deck_id, opponent_deck_id, is_win, game_mode,
+        rank, rate_value, dc_value, won_coin_toss, is_going_first,
+        played_date, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
-        duelData.player_deck_id,
+        deckId,
         duelData.opponent_deck_id,
-        duelData.result,
+        isWin,
         duelData.game_mode,
-        duelData.rank_value || null,
+        rank || null,
         duelData.rate_value || null,
         duelData.dc_value || null,
-        duelData.coin_result || null,
-        duelData.turn_order || null,
-        duelData.played_at,
+        wonCoinToss,
+        isGoingFirst,
+        playedDate,
         duelData.notes || null
       )
 
@@ -347,18 +573,38 @@ export class Database {
     const values: any[] = []
 
     const fields = [
-      'player_deck_id',
+      'deck_id',
       'opponent_deck_id',
-      'result',
+      'is_win',
       'game_mode',
-      'rank_value',
+      'rank',
       'rate_value',
       'dc_value',
-      'coin_result',
-      'turn_order',
-      'played_at',
+      'won_coin_toss',
+      'is_going_first',
+      'played_date',
       'notes'
     ]
+
+    // Handle old field names
+    if (duelData.player_deck_id !== undefined && duelData.deck_id === undefined) {
+      duelData.deck_id = duelData.player_deck_id
+    }
+    if (duelData.result !== undefined && duelData.is_win === undefined) {
+      duelData.is_win = duelData.result === 'win' ? 1 : 0
+    }
+    if (duelData.rank_value !== undefined && duelData.rank === undefined) {
+      duelData.rank = duelData.rank_value
+    }
+    if (duelData.coin_result !== undefined && duelData.won_coin_toss === undefined) {
+      duelData.won_coin_toss = duelData.coin_result === 'win' ? 1 : 0
+    }
+    if (duelData.turn_order !== undefined && duelData.is_going_first === undefined) {
+      duelData.is_going_first = duelData.turn_order === 'first' ? 1 : 0
+    }
+    if (duelData.played_at !== undefined && duelData.played_date === undefined) {
+      duelData.played_date = duelData.played_at
+    }
 
     fields.forEach((field) => {
       if (duelData[field] !== undefined) {
@@ -367,7 +613,7 @@ export class Database {
       }
     })
 
-    updates.push('updated_at = CURRENT_TIMESTAMP')
+    updates.push('update_date = CURRENT_TIMESTAMP')
     values.push(id)
 
     const sql = `UPDATE duel SET ${updates.join(', ')} WHERE id = ?`
@@ -384,25 +630,33 @@ export class Database {
   importDuels(duelsData: any[]) {
     const insert = this.db.prepare(`
       INSERT INTO duel (
-        player_deck_id, opponent_deck_id, result, game_mode,
-        rank_value, rate_value, dc_value, coin_result, turn_order,
-        played_at, notes
+        deck_id, opponent_deck_id, is_win, game_mode,
+        rank, rate_value, dc_value, won_coin_toss, is_going_first,
+        played_date, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const insertMany = this.db.transaction((duels: any[]) => {
       for (const duel of duels) {
+        // Convert old format to new format if needed
+        const deckId = duel.deck_id ?? duel.player_deck_id
+        const isWin = duel.is_win ?? (duel.result === 'win' ? 1 : 0)
+        const rank = duel.rank ?? duel.rank_value
+        const wonCoinToss = duel.won_coin_toss ?? (duel.coin_result === 'win' ? 1 : 0)
+        const isGoingFirst = duel.is_going_first ?? (duel.turn_order === 'first' ? 1 : 0)
+        const playedDate = duel.played_date ?? duel.played_at
+
         insert.run(
-          duel.player_deck_id,
+          deckId,
           duel.opponent_deck_id,
-          duel.result,
+          isWin,
           duel.game_mode,
-          duel.rank_value || null,
+          rank || null,
           duel.rate_value || null,
           duel.dc_value || null,
-          duel.coin_result || null,
-          duel.turn_order || null,
-          duel.played_at,
+          wonCoinToss,
+          isGoingFirst,
+          playedDate,
           duel.notes || null
         )
       }
@@ -423,8 +677,8 @@ export class Database {
 
     const stats = {
       total_duels: duels.length,
-      wins: duels.filter((d: any) => d.result === 'win').length,
-      losses: duels.filter((d: any) => d.result === 'loss').length,
+      wins: duels.filter((d: any) => d.is_win === 1).length,
+      losses: duels.filter((d: any) => d.is_win === 0).length,
       win_rate: 0,
       coin_win_rate: 0,
       first_turn_rate: 0,
@@ -434,15 +688,15 @@ export class Database {
     if (stats.total_duels > 0) {
       stats.win_rate = (stats.wins / stats.total_duels) * 100
 
-      const duelsWithCoin = duels.filter((d: any) => d.coin_result)
+      const duelsWithCoin = duels.filter((d: any) => d.won_coin_toss !== null && d.won_coin_toss !== undefined)
       if (duelsWithCoin.length > 0) {
-        const coinWins = duelsWithCoin.filter((d: any) => d.coin_result === 'win').length
+        const coinWins = duelsWithCoin.filter((d: any) => d.won_coin_toss === 1).length
         stats.coin_win_rate = (coinWins / duelsWithCoin.length) * 100
       }
 
-      const duelsWithTurn = duels.filter((d: any) => d.turn_order)
+      const duelsWithTurn = duels.filter((d: any) => d.is_going_first !== null && d.is_going_first !== undefined)
       if (duelsWithTurn.length > 0) {
-        const firstTurns = duelsWithTurn.filter((d: any) => d.turn_order === 'first').length
+        const firstTurns = duelsWithTurn.filter((d: any) => d.is_going_first === 1).length
         stats.first_turn_rate = (firstTurns / duelsWithTurn.length) * 100
       }
     }
@@ -465,13 +719,13 @@ export class Database {
 
     duels.forEach((duel: any) => {
       // Player deck
-      if (!playerDeckUsage.has(duel.player_deck_id)) {
-        playerDeckUsage.set(duel.player_deck_id, {
+      if (!playerDeckUsage.has(duel.deck_id)) {
+        playerDeckUsage.set(duel.deck_id, {
           name: duel.player_deck_name,
           count: 0
         })
       }
-      playerDeckUsage.get(duel.player_deck_id)!.count++
+      playerDeckUsage.get(duel.deck_id)!.count++
 
       // Opponent deck
       if (!opponentDeckUsage.has(duel.opponent_deck_id)) {
@@ -498,15 +752,15 @@ export class Database {
   ) {
     const sql = `
       SELECT
-        strftime('%Y', played_at) as year,
-        strftime('%m', played_at) as month,
-        AVG(CASE WHEN game_mode = 'RANK' THEN rank_value END) as avg_rank,
+        strftime('%Y', played_date) as year,
+        strftime('%m', played_date) as month,
+        AVG(CASE WHEN game_mode = 'RANK' THEN rank END) as avg_rank,
         AVG(CASE WHEN game_mode = 'RATE' THEN rate_value END) as avg_rate,
         AVG(CASE WHEN game_mode = 'DC' THEN dc_value END) as avg_dc
       FROM duel
       WHERE game_mode = ?
-        AND played_at >= ?
-        AND played_at <= ?
+        AND played_date >= ?
+        AND played_date <= ?
       GROUP BY year, month
       ORDER BY year, month
     `
@@ -546,7 +800,7 @@ export class Database {
     >()
 
     duels.forEach((duel: any) => {
-      const key = `${duel.player_deck_id}-${duel.opponent_deck_id}`
+      const key = `${duel.deck_id}-${duel.opponent_deck_id}`
 
       if (!matchups.has(key)) {
         matchups.set(key, {
@@ -568,21 +822,21 @@ export class Database {
       const matchup = matchups.get(key)!
       matchup.total_duels++
 
-      if (duel.result === 'win') {
+      if (duel.is_win === 1) {
         matchup.wins++
       } else {
         matchup.losses++
       }
 
       // Track turn order stats
-      if (duel.turn_order === 'first') {
+      if (duel.is_going_first === 1) {
         matchup.first_turn_total++
-        if (duel.result === 'win') {
+        if (duel.is_win === 1) {
           matchup.first_turn_wins++
         }
-      } else if (duel.turn_order === 'second') {
+      } else if (duel.is_going_first === 0) {
         matchup.second_turn_total++
-        if (duel.result === 'win') {
+        if (duel.is_win === 1) {
           matchup.second_turn_wins++
         }
       }
@@ -637,7 +891,7 @@ export class Database {
     const filtered = this.applyStatisticsFilters(duels, options)
     const hasRangeFilter = options.rangeStart !== undefined || options.rangeEnd !== undefined
     const sorted = [...filtered].sort(
-      (a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime()
+      (a, b) => new Date(b.played_date).getTime() - new Date(a.played_date).getTime()
     )
     const targetDuels = hasRangeFilter ? sorted : sorted.slice(0, limit)
 
@@ -677,8 +931,8 @@ export class Database {
     >()
 
     duels.forEach((duel: any) => {
-      if (!deckStats.has(duel.player_deck_id)) {
-        deckStats.set(duel.player_deck_id, {
+      if (!deckStats.has(duel.deck_id)) {
+        deckStats.set(duel.deck_id, {
           deck_name: duel.player_deck_name,
           wins: 0,
           total_duels: 0,
@@ -686,10 +940,10 @@ export class Database {
         })
       }
 
-      const stats = deckStats.get(duel.player_deck_id)!
+      const stats = deckStats.get(duel.deck_id)!
       stats.total_duels++
 
-      if (duel.result === 'win') {
+      if (duel.is_win === 1) {
         stats.wins++
       }
     })
@@ -716,11 +970,11 @@ export class Database {
     const duels = this.applyStatisticsFilters(this.getAllDuels(filters), options)
 
     const valueKey =
-      gameMode === 'RANK' ? 'rank_value' : gameMode === 'RATE' ? 'rate_value' : 'dc_value'
+      gameMode === 'RANK' ? 'rank' : gameMode === 'RATE' ? 'rate_value' : 'dc_value'
 
     const sorted = duels
       .filter((duel: any) => duel[valueKey] !== null && duel[valueKey] !== undefined)
-      .sort((a: any, b: any) => new Date(a.played_at).getTime() - new Date(b.played_at).getTime())
+      .sort((a: any, b: any) => new Date(a.played_date).getTime() - new Date(b.played_date).getTime())
 
     return sorted.map((duel: any, index: number) => ({
       sequence: index + 1,
@@ -745,8 +999,8 @@ export class Database {
     const opponentDecks = new Map<number, string>()
 
     duels.forEach((duel: any) => {
-      if (duel.player_deck_id && duel.player_deck_name) {
-        myDecks.set(duel.player_deck_id, duel.player_deck_name)
+      if (duel.deck_id && duel.player_deck_name) {
+        myDecks.set(duel.deck_id, duel.player_deck_name)
       }
       if (duel.opponent_deck_id && duel.opponent_deck_name) {
         opponentDecks.set(duel.opponent_deck_id, duel.opponent_deck_name)
@@ -776,14 +1030,14 @@ export class Database {
     // フィルタリング適用
     if (year) {
       duels = duels.filter((duel: any) => {
-        const duelDate = new Date(duel.played_at)
+        const duelDate = new Date(duel.played_date)
         return duelDate.getFullYear() === year
       })
     }
 
     if (month) {
       duels = duels.filter((duel: any) => {
-        const duelDate = new Date(duel.played_at)
+        const duelDate = new Date(duel.played_date)
         return duelDate.getMonth() + 1 === month
       })
     }
@@ -810,15 +1064,15 @@ export class Database {
       },
       result: {
         header: '結果',
-        getValue: (duel: any) => (duel.result === 'win' ? '勝利' : '敗北')
+        getValue: (duel: any) => (duel.is_win === 1 ? '勝利' : '敗北')
       },
       coin: {
         header: 'コイン',
-        getValue: (duel: any) => (duel.coin_result === 'win' ? '表' : '裏')
+        getValue: (duel: any) => (duel.won_coin_toss === 1 ? '表' : '裏')
       },
       first_or_second: {
         header: '先攻/後攻',
-        getValue: (duel: any) => (duel.turn_order === 'first' ? '先攻' : '後攻')
+        getValue: (duel: any) => (duel.is_going_first === 1 ? '先攻' : '後攻')
       },
       game_mode: {
         header: 'ゲームモード',
@@ -826,7 +1080,7 @@ export class Database {
       },
       rank: {
         header: 'ランク',
-        getValue: (duel: any) => getRankName(duel.rank_value)
+        getValue: (duel: any) => getRankName(duel.rank)
       },
       rate_value: {
         header: 'レート',
@@ -838,7 +1092,7 @@ export class Database {
       },
       played_date: {
         header: '対戦日時',
-        getValue: (duel: any) => formatPlayedDate(duel.played_at)
+        getValue: (duel: any) => formatPlayedDate(duel.played_date)
       },
       notes: {
         header: 'メモ',
@@ -1050,7 +1304,7 @@ export class Database {
 
         if (playerDeckName) {
           const deck = this.db
-            .prepare('SELECT id FROM deck WHERE name = ? AND is_opponent_deck = 0 AND is_archived = 0')
+            .prepare('SELECT id FROM deck WHERE name = ? AND is_opponent = 0 AND active = 1')
             .get(playerDeckName) as any
 
           if (deck) {
@@ -1063,7 +1317,7 @@ export class Database {
 
         if (opponentDeckName) {
           const deck = this.db
-            .prepare('SELECT id FROM deck WHERE name = ? AND is_opponent_deck = 1 AND is_archived = 0')
+            .prepare('SELECT id FROM deck WHERE name = ? AND is_opponent = 1 AND active = 1')
             .get(opponentDeckName) as any
 
           if (deck) {
@@ -1077,7 +1331,7 @@ export class Database {
         // 重複チェック
         const existingDuel = this.db.prepare(`
           SELECT id FROM duel
-          WHERE player_deck_id = ? AND opponent_deck_id = ? AND played_at = ?
+          WHERE deck_id = ? AND opponent_deck_id = ? AND played_date = ?
         `).get(playerDeckId, opponentDeckId, playedAt) as any
 
         if (existingDuel) {
@@ -1085,40 +1339,40 @@ export class Database {
           continue
         }
 
-        // 結果の変換: '勝利' -> 'win', '敗北' -> 'loss'
+        // 結果の変換: '勝利' -> 1, '敗北' -> 0
         const resultStr = resultIdx >= 0 ? fields[resultIdx] : ''
-        const result = resultStr === '勝利' ? 'win' : 'loss'
+        const isWin = resultStr === '勝利' ? 1 : 0
 
-        // コインの変換: '表' -> 'win', '裏' -> 'loss'
+        // コインの変換: '表' -> 1, '裏' -> 0
         const coinStr = coinIdx >= 0 ? fields[coinIdx] : ''
-        const coinResult = coinStr === '表' ? 'win' : 'loss'
+        const wonCoinToss = coinStr === '表' ? 1 : 0
 
-        // 先攻/後攻の変換: '先攻' -> 'first', '後攻' -> 'second'
+        // 先攻/後攻の変換: '先攻' -> 1, '後攻' -> 0
         const turnOrderStr = turnOrderIdx >= 0 ? fields[turnOrderIdx] : ''
-        const turnOrder = turnOrderStr === '先攻' || turnOrderStr === '先行' ? 'first' : 'second'
+        const isGoingFirst = (turnOrderStr === '先攻' || turnOrderStr === '先行') ? 1 : 0
 
         // ランクの処理
         const rankStr = rankIdx >= 0 ? fields[rankIdx] : ''
-        const rankValue = getRankValue(rankStr)
+        const rank = getRankValue(rankStr)
 
         // レートとDC値
         const rateStr = rateIdx >= 0 ? fields[rateIdx] : ''
-        const rateValue = rateStr && !isNaN(parseInt(rateStr)) ? parseInt(rateStr) : null
+        const rateValue = rateStr && !isNaN(parseFloat(rateStr)) ? parseFloat(rateStr) : null
 
         const dcStr = dcIdx >= 0 ? fields[dcIdx] : ''
         const dcValue = dcStr && !isNaN(parseInt(dcStr)) ? parseInt(dcStr) : null
 
         duels.push({
-          player_deck_id: playerDeckId,
+          deck_id: playerDeckId,
           opponent_deck_id: opponentDeckId,
-          result: result,
+          is_win: isWin,
           game_mode: gameModeIdx >= 0 ? fields[gameModeIdx] || 'RANK' : 'RANK',
-          rank_value: rankValue,
+          rank: rank,
           rate_value: rateValue,
           dc_value: dcValue,
-          coin_result: coinResult,
-          turn_order: turnOrder,
-          played_at: playedAt,
+          won_coin_toss: wonCoinToss,
+          is_going_first: isGoingFirst,
+          played_date: playedAt,
           notes: notesIdx >= 0 ? fields[notesIdx] || null : null
         })
         createdCount++
