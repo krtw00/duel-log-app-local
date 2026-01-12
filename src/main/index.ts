@@ -3,6 +3,10 @@ import path from 'path'
 import fs from 'fs'
 import { Database } from './database'
 
+// Disable GPU hardware acceleration to reduce GPU usage
+// This must be called before app is ready
+app.disableHardwareAcceleration()
+
 let mainWindow: BrowserWindow | null = null
 let database: Database
 
