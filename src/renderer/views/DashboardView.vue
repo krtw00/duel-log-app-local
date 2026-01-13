@@ -1,6 +1,6 @@
 <template>
   <app-layout current-view="dashboard" main-class="dashboard-main">
-    <v-container fluid class="pa-4">
+    <v-container fluid class="pa-4 dashboard-container">
         <v-card class="mode-tab-card mb-4">
           <v-tabs
             v-model="currentMode"
@@ -41,7 +41,7 @@
           </v-tabs>
         </v-card>
 
-        <v-row class="mb-4">
+        <v-row class="mb-4 year-month-row">
           <v-col cols="6" sm="3">
             <v-select
               v-model="selectedYear"
@@ -138,7 +138,7 @@
           </v-card-text>
         </v-card>
 
-        <v-row class="mb-4">
+        <v-row class="mb-4 stat-row">
           <v-col cols="6" sm="4" md="2">
             <stat-card
               title="総試合数"
@@ -197,6 +197,36 @@
             </div>
 
             <div class="d-flex d-sm-none flex-column ga-2 mt-3">
+              <div class="d-flex align-center ga-2 mb-2">
+                <v-tooltip
+                  text="先攻/後攻の初期値（コイン表時の基準）"
+                  location="top"
+                  content-class="default-turn-tooltip"
+                >
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      icon="mdi-information-outline"
+                      variant="text"
+                      density="compact"
+                      :class="['default-toggle__icon', themeStore.isDark ? 'text-white' : 'text-black']"
+                    />
+                  </template>
+                </v-tooltip>
+                <v-btn-toggle
+                  v-model="defaultFirstOrSecond"
+                  mandatory
+                  divided
+                  density="compact"
+                  variant="outlined"
+                  color="primary"
+                  selected-class="default-toggle__selected"
+                  :class="['default-toggle__toggle', 'flex-grow-1', themeStore.isDark ? 'toggle-dark-mode' : 'toggle-light-mode']"
+                >
+                  <v-btn :value="0" size="small" class="flex-grow-1">後攻</v-btn>
+                  <v-btn :value="1" size="small" class="flex-grow-1">先攻</v-btn>
+                </v-btn-toggle>
+              </div>
               <v-btn
                 color="primary"
                 prepend-icon="mdi-plus"
@@ -234,6 +264,34 @@
 
             <div class="d-none d-sm-flex align-center ga-2">
               <v-spacer />
+              <v-tooltip
+                text="先攻/後攻の初期値（コイン表時の基準）"
+                location="top"
+                content-class="default-turn-tooltip"
+              >
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-information-outline"
+                    variant="text"
+                    density="compact"
+                    :class="['default-toggle__icon', themeStore.isDark ? 'text-white' : 'text-black']"
+                  />
+                </template>
+              </v-tooltip>
+              <v-btn-toggle
+                v-model="defaultFirstOrSecond"
+                mandatory
+                divided
+                density="compact"
+                variant="outlined"
+                color="primary"
+                selected-class="default-toggle__selected"
+                :class="['default-toggle__toggle', 'mr-4', themeStore.isDark ? 'toggle-dark-mode' : 'toggle-light-mode']"
+              >
+                <v-btn :value="0" size="small">後攻</v-btn>
+                <v-btn :value="1" size="small">先攻</v-btn>
+              </v-btn-toggle>
               <v-btn
                 color="secondary"
                 prepend-icon="mdi-download"
@@ -270,6 +328,7 @@
       v-model="showDuelDialog"
       :duel="editingDuel"
       :default-game-mode="currentMode"
+      :default-first-or-second="defaultFirstOrSecond"
       hide-game-mode-tab
       @saved="handleDuelSaved"
     />
@@ -297,6 +356,7 @@ const showDuelDialog = ref(false)
 const editingDuel = ref<Duel | null>(null)
 const exportingCSV = ref(false)
 const importingCSV = ref(false)
+const defaultFirstOrSecond = ref<0 | 1>(1)
 
 const notificationStore = useNotificationStore()
 const themeStore = useThemeStore()
@@ -641,19 +701,39 @@ onMounted(() => {
 
 <style scoped lang="scss">
 :deep(.dashboard-main) {
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 64px);
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
 }
 
 .filter-card {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px !important;
+  flex-shrink: 0;
 }
 
 .mode-tab-card {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px !important;
+  flex-shrink: 0;
+}
+
+.stat-row {
+  flex-shrink: 0;
+}
+
+.year-month-row {
+  flex-shrink: 0;
 }
 
 .mode-tabs {
@@ -679,6 +759,48 @@ onMounted(() => {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :deep(.v-card-title) {
+    flex-shrink: 0;
+  }
+
+  :deep(.v-data-table) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  :deep(.v-table__wrapper) {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+.default-toggle__icon {
+  opacity: 0.9;
+}
+
+.default-toggle__toggle {
+  border-width: 2px;
+  background: rgba(var(--v-theme-surface), 0.9);
+  border-color: rgba(var(--v-theme-on-surface), 0.25) !important;
+}
+
+.default-toggle__selected {
+  background: rgba(var(--v-theme-primary), 0.25) !important;
+  border-color: rgb(var(--v-theme-primary)) !important;
+}
+
+.default-toggle__toggle :deep(.v-btn) {
+  font-weight: 600;
 }
 
 @media (max-width: 599px) {
@@ -693,5 +815,41 @@ onMounted(() => {
       justify-content: space-between;
     }
   }
+}
+</style>
+
+<style lang="scss">
+
+/* グローバルスタイル: トグルボタンの文字色 */
+.toggle-dark-mode .v-btn,
+.toggle-dark-mode .v-btn .v-btn__content {
+  color: #fff !important;
+}
+
+.toggle-light-mode .v-btn,
+.toggle-light-mode .v-btn .v-btn__content {
+  color: #000 !important;
+}
+
+/* ツールチップのスタイル（teleport先でも効くようにグローバル指定） */
+.default-turn-tooltip {
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 8px;
+  opacity: 1 !important;
+}
+
+.v-theme--customLightTheme .default-turn-tooltip,
+.v-theme--customLightTheme.default-turn-tooltip {
+  color: #000 !important;
+  background: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.25) !important;
+}
+
+.v-theme--customDarkTheme .default-turn-tooltip,
+.v-theme--customDarkTheme.default-turn-tooltip {
+  color: #fff !important;
+  background: #111 !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
 }
 </style>
