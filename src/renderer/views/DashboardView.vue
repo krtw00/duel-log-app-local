@@ -1,21 +1,6 @@
 <template>
-  <div>
-    <app-bar current-view="dashboard" @toggle-drawer="drawer = !drawer" />
-
-    <v-navigation-drawer v-model="drawer" temporary>
-      <v-list nav dense>
-        <v-list-item
-          v-for="item in navItems"
-          :key="item.view"
-          :prepend-icon="item.icon"
-          :to="item.path"
-          :title="item.name"
-        />
-      </v-list>
-    </v-navigation-drawer>
-
-    <v-main class="main-content">
-      <v-container fluid class="pa-6 pa-sm-6 pa-xs-3">
+  <app-layout current-view="dashboard" main-class="dashboard-main">
+    <v-container fluid class="pa-4">
         <v-card class="mode-tab-card mb-4">
           <v-tabs
             v-model="currentMode"
@@ -206,12 +191,12 @@
 
         <v-card class="duel-card">
           <v-card-title class="pa-4">
-            <div class="d-flex align-center mb-3">
+            <div class="d-flex align-center">
               <v-icon class="mr-2" color="primary">mdi-table</v-icon>
               <span class="text-h6">対戦履歴</span>
             </div>
 
-            <div class="d-flex d-sm-none flex-column ga-2">
+            <div class="d-flex d-sm-none flex-column ga-2 mt-3">
               <v-btn
                 color="primary"
                 prepend-icon="mdi-plus"
@@ -280,20 +265,20 @@
           />
         </v-card>
       </v-container>
-    </v-main>
 
     <duel-form-dialog
       v-model="showDuelDialog"
       :duel="editingDuel"
       :default-game-mode="currentMode"
+      hide-game-mode-tab
       @saved="handleDuelSaved"
     />
-  </div>
+  </app-layout>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppBar from '@/components/layout/AppBar.vue'
+import AppLayout from '@/components/layout/AppLayout.vue'
 import StatCard from '@/components/duel/StatCard.vue'
 import DuelTable from '@/components/duel/DuelTable.vue'
 import DuelFormDialog from '@/components/duel/DuelFormDialog.vue'
@@ -302,7 +287,6 @@ import { useNotificationStore } from '@/stores/notification'
 import { useThemeStore } from '@/stores/theme'
 import type { Deck, Duel, DuelStats, GameMode } from '@/types'
 
-const drawer = ref(false)
 const currentMode = ref<GameMode>('RANK')
 const selectedYear = ref(new Date().getFullYear())
 const selectedMonth = ref(new Date().getMonth() + 1)
@@ -316,12 +300,6 @@ const importingCSV = ref(false)
 
 const notificationStore = useNotificationStore()
 const themeStore = useThemeStore()
-
-const navItems = [
-  { name: 'ダッシュボード', path: '/', view: 'dashboard', icon: 'mdi-view-dashboard' },
-  { name: 'デッキ管理', path: '/decks', view: 'decks', icon: 'mdi-cards' },
-  { name: '統計', path: '/statistics', view: 'statistics', icon: 'mdi-chart-bar' }
-]
 
 const years = computed(() => {
   const currentYear = new Date().getFullYear()
@@ -662,8 +640,7 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.main-content {
-  background: rgb(var(--v-theme-background));
+:deep(.dashboard-main) {
   min-height: 100vh;
 }
 

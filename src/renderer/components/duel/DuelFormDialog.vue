@@ -1,12 +1,12 @@
 <template>
-  <v-dialog
-    :model-value="modelValue"
-    max-width="700"
-    persistent
-    :fullscreen="$vuetify.display.xs"
-    @update:model-value="$emit('update:modelValue', $event)"
+  <component
+    :is="inline ? 'div' : 'v-dialog'"
+    v-bind="inline ? {} : dialogProps"
+    :fullscreen="inline ? undefined : $vuetify.display.xs"
+    class="duel-form-wrapper"
+    @update:model-value="inline ? undefined : $emit('update:modelValue', $event)"
   >
-    <v-card class="duel-form-card">
+    <v-card v-if="isActive" class="duel-form-card">
       <div class="card-glow"></div>
 
       <v-card-title class="pa-6">
@@ -17,7 +17,8 @@
       <v-divider />
 
       <v-card-text class="pa-6">
-        <v-tabs v-model="form.game_mode" color="primary" class="mb-4 mode-tabs-dialog" show-arrows>
+        <!-- ゲームモードタブ（ダイアログモードかつhideGameModeTabがfalseの場合のみ表示） -->
+        <v-tabs v-if="!inline && !hideGameModeTab" v-model="form.game_mode" color="primary" class="mb-4 mode-tabs-dialog" show-arrows>
           <v-tab value="RANK">
             <v-icon start>mdi-crown</v-icon>
             <span class="d-none d-sm-inline">ランク</span>
@@ -197,7 +198,8 @@
               />
             </v-col>
 
-            <v-col cols="12" :md="form.game_mode === 'EVENT' ? 12 : 6">
+            <!-- 対戦日時（編集時またはダイアログモード時のみ表示） -->
+            <v-col v-if="isEdit || !inline" cols="12" :md="form.game_mode === 'EVENT' ? 12 : 6">
               <v-text-field
                 v-model="form.played_date"
                 label="対戦日時"
@@ -229,14 +231,16 @@
 
       <v-card-actions class="pa-4">
         <v-spacer />
-        <v-btn variant="text" @click="closeDialog"> キャンセル </v-btn>
+        <v-btn variant="text" @click="closeDialog">
+          {{ inline ? 'リセット' : 'キャンセル' }}
+        </v-btn>
         <v-btn color="primary" :loading="loading" @click="handleSubmit">
           <v-icon start>mdi-content-save</v-icon>
           {{ isEdit ? '更新' : '登録' }}
         </v-btn>
       </v-card-actions>
     </v-card>
-  </v-dialog>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -249,13 +253,28 @@ import { deckAPI, duelAPI } from '@/services/api'
 interface Props {
   modelValue: boolean
   duel: Duel | null
+  inline?: boolean
   defaultGameMode?: GameMode
+  defaultFirstOrSecond?: 0 | 1
+  hideGameModeTab?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  defaultGameMode: 'RANK'
+  defaultGameMode: 'RANK',
+  inline: false,
+  defaultFirstOrSecond: 1,
+  hideGameModeTab: false
 })
 const emit = defineEmits(['update:modelValue', 'saved'])
+
+const dialogProps = computed(() => ({
+  modelValue: props.modelValue,
+  maxWidth: 700,
+  persistent: true,
+  transition: 'fade-transition'
+}))
+
+const isActive = computed(() => (props.inline ? true : props.modelValue))
 
 const notificationStore = useNotificationStore()
 
@@ -268,6 +287,7 @@ const selectedMyDeck = ref<Deck | string | null>(null)
 const selectedOpponentDeck = ref<Deck | string | null>(null)
 const playedDateTouched = ref(false)
 const latestDuels = ref<Duel[]>([])
+const suppressCoinSync = ref(false)
 
 const formatDateToLocalInput = (date: Date): string => {
   const year = date.getFullYear()
@@ -290,7 +310,8 @@ const defaultForm = (): DuelCreate => {
     rate_value: undefined,
     dc_value: undefined,
     coin: true,
-    first_or_second: true,
+    // コインが表の場合、defaultFirstOrSecondの設定に従う
+    first_or_second: props.defaultFirstOrSecond === 1,
     played_date: getCurrentLocalDateTime(),
     notes: ''
   }
@@ -299,6 +320,16 @@ const defaultForm = (): DuelCreate => {
 const form = ref<DuelCreate>(defaultForm())
 
 const isEdit = computed(() => !!props.duel)
+
+// コインの結果に基づいて先攻/後攻を決定する関数
+const applyCoinDefault = (coin: boolean, base: 0 | 1): boolean => {
+  // 後攻をデフォルトにしている場合（base === 0）、コインの結果に関わらず後攻を維持
+  if (base === 0) {
+    return false
+  }
+  // 先攻をデフォルトにしている場合（base === 1）、コインが表なら先攻、裏なら後攻
+  return coin === true ? true : false
+}
 
 const coinOptions = [
   { title: '表', value: true },
@@ -471,51 +502,59 @@ const resolveDeckId = async (
   return null
 }
 
+const initializeForm = async () => {
+  playedDateTouched.value = false
+  await fetchDecks()
+  if (props.duel) {
+    const localDateTime = isoToLocalDateTime(props.duel.played_at)
+
+    form.value = {
+      deck_id: props.duel.player_deck_id,
+      opponentDeck_id: props.duel.opponent_deck_id,
+      result: props.duel.result === 'win',
+      game_mode: props.duel.game_mode,
+      rank: props.duel.rank_value,
+      rate_value: props.duel.rate_value,
+      dc_value: props.duel.dc_value,
+      coin: props.duel.coin_result === 'win',
+      first_or_second: props.duel.turn_order === 'first',
+      played_date: localDateTime,
+      notes: props.duel.notes || ''
+    }
+
+    selectedMyDeck.value = myDecks.value.find((d) => d.id === props.duel?.player_deck_id) || null
+    selectedOpponentDeck.value =
+      opponentDecks.value.find((d) => d.id === props.duel?.opponent_deck_id) || null
+  } else {
+    form.value = defaultForm()
+    selectedMyDeck.value = null
+    selectedOpponentDeck.value = null
+    playedDateTouched.value = false
+
+    await loadLatestDuels()
+
+    form.value.game_mode = props.defaultGameMode
+    applyLatestDefaultsForMode(form.value.game_mode)
+  }
+}
+
 watch(
-  () => props.modelValue,
+  () => isActive.value,
   async (newValue) => {
     if (newValue) {
-      playedDateTouched.value = false
-      await fetchDecks()
-      if (props.duel) {
-        const localDateTime = isoToLocalDateTime(props.duel.played_at)
-
-        form.value = {
-          deck_id: props.duel.player_deck_id,
-          opponentDeck_id: props.duel.opponent_deck_id,
-          result: props.duel.result === 'win',
-          game_mode: props.duel.game_mode,
-          rank: props.duel.rank_value,
-          rate_value: props.duel.rate_value,
-          dc_value: props.duel.dc_value,
-          coin: props.duel.coin_result === 'win',
-          first_or_second: props.duel.turn_order === 'first',
-          played_date: localDateTime,
-          notes: props.duel.notes || ''
-        }
-
-        selectedMyDeck.value = myDecks.value.find((d) => d.id === props.duel?.player_deck_id) || null
-        selectedOpponentDeck.value =
-          opponentDecks.value.find((d) => d.id === props.duel?.opponent_deck_id) || null
-      } else {
-        form.value = defaultForm()
-        selectedMyDeck.value = null
-        selectedOpponentDeck.value = null
-        playedDateTouched.value = false
-
-        await loadLatestDuels()
-
-        form.value.game_mode = props.defaultGameMode
-        applyLatestDefaultsForMode(form.value.game_mode)
-      }
+      // アニメーション完了後にフォーム初期化（150ms遅延）
+      setTimeout(async () => {
+        await initializeForm()
+      }, 150)
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(
   () => form.value.game_mode,
   async (newMode) => {
-    if (isEdit.value || !props.modelValue) return
+    if (isEdit.value || !isActive.value) return
 
     form.value.rank = undefined
     form.value.rate_value = undefined
@@ -526,6 +565,42 @@ watch(
     }
 
     applyLatestDefaultsForMode(newMode)
+  }
+)
+
+// defaultGameModeの変更を監視（inlineモード用）
+watch(
+  () => props.defaultGameMode,
+  (newMode) => {
+    if (!props.inline || isEdit.value) return
+    if (form.value.game_mode === newMode) return
+    form.value.game_mode = newMode
+    applyLatestDefaultsForMode(newMode)
+  }
+)
+
+// コイン結果に連動して先攻/後攻を自動設定
+watch(
+  () => form.value.coin,
+  (newCoin) => {
+    // 編集モードでは自動変更しない（意図しない書き換え防止）
+    if (isEdit.value) return
+    if (suppressCoinSync.value) {
+      suppressCoinSync.value = false
+      return
+    }
+    // コインが表のときはセグメントで指定した値、裏のときは後攻をデフォルトとする
+    const base = props.defaultFirstOrSecond
+    form.value.first_or_second = applyCoinDefault(newCoin, base)
+  }
+)
+
+// defaultFirstOrSecondの変更を監視
+watch(
+  () => props.defaultFirstOrSecond,
+  (newBase) => {
+    if (isEdit.value) return
+    form.value.first_or_second = applyCoinDefault(form.value.coin, newBase)
   }
 )
 
@@ -581,6 +656,15 @@ const handleSubmit = async () => {
 }
 
 const closeDialog = () => {
+  if (props.inline) {
+    formRef.value?.resetValidation()
+    selectedMyDeck.value = null
+    selectedOpponentDeck.value = null
+    playedDateTouched.value = false
+    void initializeForm()
+    return
+  }
+
   emit('update:modelValue', false)
   formRef.value?.resetValidation()
   selectedMyDeck.value = null
@@ -590,12 +674,28 @@ const closeDialog = () => {
 </script>
 
 <style scoped lang="scss">
+.duel-form-wrapper {
+  width: 100%;
+
+  // ダイアログトランジションの高速化
+  :deep(.v-overlay__content) {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+  }
+
+  :deep(.v-overlay__scrim) {
+    will-change: opacity;
+  }
+}
+
 .duel-form-card {
-  backdrop-filter: blur(20px);
   border: 1px solid rgba(128, 128, 128, 0.2);
   border-radius: 12px !important;
   position: relative;
   overflow: hidden;
+  will-change: opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .card-glow {
