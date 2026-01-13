@@ -1,24 +1,6 @@
 <template>
-  <div>
-    <!-- ナビゲーションバー -->
-    <app-bar current-view="statistics" @toggle-drawer="drawer = !drawer" />
-
-    <!-- レスポンシブ対応のナビゲーションドロワー -->
-    <v-navigation-drawer v-model="drawer" temporary>
-      <v-list nav dense>
-        <v-list-item
-          v-for="item in navItems"
-          :key="item.view"
-          :prepend-icon="item.icon"
-          :to="item.path"
-          :title="item.name"
-        />
-      </v-list>
-    </v-navigation-drawer>
-
-    <!-- メインコンテンツ -->
-    <v-main class="main-content">
-      <v-container fluid class="pa-6">
+  <app-layout current-view="statistics">
+    <v-container fluid class="pa-6">
         <h1 class="statistics-title text-h4 mb-6">統計情報</h1>
 
         <!-- 年月選択 -->
@@ -203,7 +185,13 @@
                       density="compact"
                     >
                       <template #[`item.win_rate`]='{ item }'>
-                        {{ item.wins }} / {{ item.total_duels }} ({{ item.win_rate.toFixed(1) }}%)
+                        <v-chip
+                          size="small"
+                          :color="getMatchupColor(item.win_rate)"
+                          :variant="getMatchupColor(item.win_rate) ? 'tonal' : 'outlined'"
+                        >
+                          {{ item.wins }} / {{ item.total_duels }} ({{ formatPercent(item.win_rate) }})
+                        </v-chip>
                       </template>
                       <template #no-data>
                         <div class="no-data-placeholder py-8">
@@ -228,15 +216,33 @@
                       class="matchup-table"
                       density="compact"
                     >
-            <template #[`item.win_rate`]='{ item }'>
-              {{ item.wins }} / {{ item.total_duels }} ({{ item.win_rate.toFixed(1) }}%)
-            </template>
-            <template #[`item.win_rate_first`]='{ item }'>
-              {{ item.win_rate_first.toFixed(1) }}%
-            </template>
-            <template #[`item.win_rate_second`]='{ item }'>
-              {{ item.win_rate_second.toFixed(1) }}%
-            </template>
+                      <template #[`item.win_rate`]='{ item }'>
+                        <v-chip
+                          size="small"
+                          :color="getMatchupColor(item.win_rate)"
+                          :variant="getMatchupColor(item.win_rate) ? 'tonal' : 'outlined'"
+                        >
+                          {{ item.wins }} / {{ item.total_duels }} ({{ formatPercent(item.win_rate) }})
+                        </v-chip>
+                      </template>
+                      <template #[`item.win_rate_first`]='{ item }'>
+                        <v-chip
+                          size="small"
+                          :color="getMatchupColor(item.win_rate_first)"
+                          :variant="getMatchupColor(item.win_rate_first) ? 'tonal' : 'outlined'"
+                        >
+                          {{ formatPercent(item.win_rate_first) }}
+                        </v-chip>
+                      </template>
+                      <template #[`item.win_rate_second`]='{ item }'>
+                        <v-chip
+                          size="small"
+                          :color="getMatchupColor(item.win_rate_second)"
+                          :variant="getMatchupColor(item.win_rate_second) ? 'tonal' : 'outlined'"
+                        >
+                          {{ formatPercent(item.win_rate_second) }}
+                        </v-chip>
+                      </template>
                       <template #no-data>
                         <div class="no-data-placeholder py-8">
                           <v-icon size="64" color="grey">mdi-table-off</v-icon>
@@ -276,14 +282,13 @@
             </v-row>
           </v-window-item>
         </v-window>
-      </v-container>
-    </v-main>
-  </div>
+    </v-container>
+  </app-layout>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
-import AppBar from '@/components/layout/AppBar.vue';
+import AppLayout from '@/components/layout/AppLayout.vue';
 import DuelTable from '@/components/duel/DuelTable.vue';
 import { useThemeStore } from '@/stores/theme';
 import { statisticsAPI, duelAPI } from '@/services/api';
@@ -292,12 +297,14 @@ import { useNotificationStore } from '@/stores/notification';
 const themeStore = useThemeStore();
 const notificationStore = useNotificationStore();
 
-const drawer = ref(false);
-const navItems = [
-  { name: 'ダッシュボード', path: '/', view: 'dashboard', icon: 'mdi-view-dashboard' },
-  { name: 'デッキ管理', path: '/decks', view: 'decks', icon: 'mdi-cards' },
-  { name: '統計', path: '/statistics', view: 'statistics', icon: 'mdi-chart-bar' },
-];
+// 勝率に応じた色を返す関数
+const getMatchupColor = (value: number) => {
+  if (value >= 55) return 'info';
+  if (value <= 45) return 'error';
+  return undefined;
+};
+
+const formatPercent = (value: number) => `${value.toFixed(1)}%`;
 
 // --- Types ---
 interface DistributionData {
