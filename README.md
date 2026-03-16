@@ -1,153 +1,155 @@
 # Duel Log App - Local (Electron Edition)
 
-デュエルログアプリのローカル版（Electron）です。元のWebアプリケーションからログイン機能と共有リンク機能を除いたスタンドアロンアプリケーションです。
+[日本語](README.ja.md) | English
 
-## 特徴
+A local (Electron) version of the Duel Log App. A standalone application based on the original web application, with login and sharing features removed.
 
-- ローカルデータベース（SQLite）を使用した完全オフライン対応
-- 認証不要で即座に使用可能
-- デュエル記録の管理
-- デッキ管理
-- 統計情報の表示
-- ライト/ダークテーマの切り替え
+## Features
 
-## 削除された機能
+- Fully offline with local database (SQLite)
+- No authentication required - ready to use immediately
+- Duel record management
+- Deck management
+- Statistics display
+- Light/Dark theme toggle
 
-- ユーザー認証（ログイン/ログアウト）
-- アカウント登録
-- パスワードリセット
-- 統計情報の共有リンク機能
+## Removed Features
 
-## 技術スタック
+- User authentication (login/logout)
+- Account registration
+- Password reset
+- Statistics sharing link
 
-### フロントエンド
+## Tech Stack
+
+### Frontend
 - Vue 3 (Composition API)
 - TypeScript
 - Vuetify 3
-- Pinia (状態管理)
+- Pinia (state management)
 - Vue Router 4
 - ApexCharts
 
-### バックエンド/データベース
+### Backend / Database
 - Electron
 - better-sqlite3 (SQLite)
 
-### ビルドツール
+### Build Tools
 - Vite
 - electron-builder
 
-## セットアップ
+## Setup
 
-### 依存関係のインストール
+### Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 開発モードで実行
+### Run in Development Mode
 
 ```bash
 npm run electron:dev
 ```
 
-### ビルド
+### Build
 
 ```bash
 npm run electron:build
 ```
 
-## プロジェクト構造
+## Project Structure
 
 ```
 duel-log-app-local/
-├── config/                # 設定ファイル
-│   ├── .eslintrc.cjs      # ESLint設定
-│   ├── .prettierrc.json   # Prettier設定
-│   ├── tsconfig.json      # TypeScript基本設定
-│   ├── tsconfig.main.json # Mainプロセス用TypeScript設定
-│   ├── tsconfig.node.json # Node用TypeScript設定
-│   ├── tsconfig.preload.json # Preload用TypeScript設定
-│   └── vite.config.ts     # Vite設定
+├── config/                # Configuration files
+│   ├── .eslintrc.cjs      # ESLint config
+│   ├── .prettierrc.json   # Prettier config
+│   ├── tsconfig.json      # Base TypeScript config
+│   ├── tsconfig.main.json # Main process TypeScript config
+│   ├── tsconfig.node.json # Node TypeScript config
+│   ├── tsconfig.preload.json # Preload TypeScript config
+│   └── vite.config.ts     # Vite config
 ├── src/
-│   ├── main/              # Electronメインプロセス
-│   │   ├── index.ts       # メインプロセスエントリーポイント
-│   │   └── database.ts    # SQLiteデータベースロジック
-│   ├── preload/           # Electronプリロードスクリプト
-│   │   └── index.ts       # IPC通信の公開API
-│   └── renderer/          # Vueフロントエンド
-│       ├── assets/        # 静的アセット
-│       ├── components/    # Vueコンポーネント
-│       ├── plugins/       # Vueプラグイン（Vuetify等）
-│       ├── router/        # Vue Router設定
-│       ├── services/      # APIサービス
-│       ├── stores/        # Pinia状態管理
-│       ├── types/         # TypeScript型定義
-│       ├── utils/         # ユーティリティ関数
-│       ├── views/         # ページビュー
-│       ├── App.vue        # ルートコンポーネント
-│       └── main.ts        # レンダラープロセスエントリーポイント
-├── public/                # 公開静的ファイル
-├── dist/                  # ビルド出力（レンダラープロセス）
-├── dist-electron/         # ビルド出力（Electronプロセス）
-├── electron-builder/      # Electron Builder設定
-├── index.html             # HTMLエントリーポイント
-├── package.json           # プロジェクト依存関係
-└── README.md              # このファイル
+│   ├── main/              # Electron main process
+│   │   ├── index.ts       # Main process entry point
+│   │   └── database.ts    # SQLite database logic
+│   ├── preload/           # Electron preload scripts
+│   │   └── index.ts       # IPC exposed API
+│   └── renderer/          # Vue frontend
+│       ├── assets/        # Static assets
+│       ├── components/    # Vue components
+│       ├── plugins/       # Vue plugins (Vuetify, etc.)
+│       ├── router/        # Vue Router config
+│       ├── services/      # API services
+│       ├── stores/        # Pinia state management
+│       ├── types/         # TypeScript type definitions
+│       ├── utils/         # Utility functions
+│       ├── views/         # Page views
+│       ├── App.vue        # Root component
+│       └── main.ts        # Renderer process entry point
+├── public/                # Public static files
+├── dist/                  # Build output (renderer process)
+├── dist-electron/         # Build output (Electron process)
+├── electron-builder/      # Electron Builder config
+├── index.html             # HTML entry point
+├── package.json           # Project dependencies
+└── README.md              # This file
 ```
 
-## データベース
+## Database
 
-アプリケーションデータは以下の場所に保存されます：
+Application data is stored at:
 - Windows: `%APPDATA%/duel-log-app-local/duel-log.db`
 - macOS: `~/Library/Application Support/duel-log-app-local/duel-log.db`
 - Linux: `~/.config/duel-log-app-local/duel-log.db`
 
-## バージョンアップとリリース
+## Versioning and Releases
 
-### バージョン番号の変更
+### Changing the Version Number
 
-npmコマンドでバージョンを更新（推奨）：
+Update the version using npm commands (recommended):
 
 ```bash
-# パッチバージョンアップ (1.0.0 → 1.0.1) - バグフィックス
+# Patch version bump (1.0.0 -> 1.0.1) - Bug fixes
 npm version patch
 
-# マイナーバージョンアップ (1.0.0 → 1.1.0) - 新機能追加
+# Minor version bump (1.0.0 -> 1.1.0) - New features
 npm version minor
 
-# メジャーバージョンアップ (1.0.0 → 2.0.0) - 破壊的変更
+# Major version bump (1.0.0 -> 2.0.0) - Breaking changes
 npm version major
 
-# 特定のバージョンを指定
+# Specify a specific version
 npm version 1.5.0
 ```
 
-### リリースワークフロー
+### Release Workflow
 
-1. **バージョンアップ**（自動でコミット＆タグ作成）
+1. **Version bump** (automatically creates commit & tag)
    ```bash
-   npm version <新バージョン> -m "Release v%s: リリースノート"
+   npm version <new-version> -m "Release v%s: release notes"
    ```
 
-2. **アイコン再生成**（アイコンを変更した場合）
+2. **Regenerate icons** (if icons were changed)
    ```bash
    node generate-icons.js
    ```
 
-3. **ビルド**
+3. **Build**
    ```bash
    npm run electron:build
    ```
 
-4. **GitHubへプッシュ**
+4. **Push to GitHub**
    ```bash
    git push && git push --tags
    ```
 
-ビルド成果物は `release/` ディレクトリに生成されます：
-- `Duel Log App Setup <バージョン>.exe` - インストーラー版
-- `Duel Log App <バージョン>.exe` - ポータブル版
+Build artifacts are generated in the `release/` directory:
+- `Duel Log App Setup <version>.exe` - Installer version
+- `Duel Log App <version>.exe` - Portable version
 
-## ライセンス
+## License
 
-このプロジェクトは [MIT License](LICENSE) の下でライセンスされています。
+This project is licensed under the [MIT License](LICENSE).
