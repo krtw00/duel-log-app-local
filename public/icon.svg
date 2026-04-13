@@ -1,14 +1,13 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<svg width="256" height="256" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="dlGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#6a5acd;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#00bfff;stop-opacity:1" />
-    </linearGradient>
+    <filter id="lShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0.9" dy="1.1" stdDeviation="0.18" flood-color="#111827" flood-opacity="0.45" />
+    </filter>
   </defs>
-  <rect width="64" height="64" fill="#000000"/>
-  <text x="32" y="42" font-family="Arial" font-size="28" font-weight="bold"
-        text-anchor="middle" fill="url(#dlGradient)" stroke="#ffffff" stroke-width="1.5">
-    DL
-  </text>
+  <rect x="5" y="5" width="54" height="54" rx="16" fill="#243041" />
+  <rect x="5" y="5" width="54" height="54" rx="16" fill="none" stroke="#4b5a70" />
+  <g font-family='"Liberation Serif", serif' font-size="43" font-weight="700">
+    <text x="11.828" y="41.831" fill="#e8edf4">D</text>
+    <text x="24.528" y="50.331" fill="#f8fbff" filter="url(#lShadow)">L</text>
+  </g>
 </svg>
