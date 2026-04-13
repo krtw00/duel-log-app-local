@@ -146,154 +146,168 @@ export class Database {
     deckColumnNames: string[],
     duelColumnNames: string[]
   ) {
-    // Use transaction for safety
-    const migrate = this.db.transaction(() => {
-      // Migrate deck table
-      if (hasOldDeckSchema) {
-        console.log('Migrating deck table from legacy schema...')
+    const previousForeignKeyState = Number(this.db.pragma('foreign_keys', { simple: true }) ?? 1)
+    this.db.pragma('foreign_keys = OFF')
 
-        // Create new deck table
-        this.db.exec(`
-          CREATE TABLE IF NOT EXISTS deck_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            is_opponent INTEGER NOT NULL DEFAULT 0,
-            active INTEGER NOT NULL DEFAULT 1,
-            createdat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updatedat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-          )
-        `)
+    try {
+      // Use transaction for safety
+      const migrate = this.db.transaction(() => {
+        // Migrate deck table
+        if (hasOldDeckSchema) {
+          console.log('Migrating deck table from legacy schema...')
 
-        // Copy data with column mapping
-        // is_opponent_deck -> is_opponent
-        // is_archived -> active (inverted: is_archived=0 means active=1)
-        const hasIsArchived = deckColumnNames.includes('is_archived')
-        const hasCreatedAt = deckColumnNames.includes('created_at')
-        const hasUpdatedAt = deckColumnNames.includes('updated_at')
+          // Create new deck table
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS deck_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              is_opponent INTEGER NOT NULL DEFAULT 0,
+              active INTEGER NOT NULL DEFAULT 1,
+              createdat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updatedat TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `)
 
-        let selectClause = 'id, name, is_opponent_deck as is_opponent'
-        if (hasIsArchived) {
-          selectClause += ', CASE WHEN is_archived = 1 THEN 0 ELSE 1 END as active'
-        } else {
-          selectClause += ', 1 as active'
+          // Copy data with column mapping
+          // is_opponent_deck -> is_opponent
+          // is_archived -> active (inverted: is_archived=0 means active=1)
+          const hasIsArchived = deckColumnNames.includes('is_archived')
+          const hasCreatedAt = deckColumnNames.includes('created_at')
+          const hasUpdatedAt = deckColumnNames.includes('updated_at')
+
+          let selectClause = 'id, name, is_opponent_deck as is_opponent'
+          if (hasIsArchived) {
+            selectClause += ', CASE WHEN is_archived = 1 THEN 0 ELSE 1 END as active'
+          } else {
+            selectClause += ', 1 as active'
+          }
+          if (hasCreatedAt) {
+            selectClause += ', created_at as createdat'
+          } else {
+            selectClause += ", CURRENT_TIMESTAMP as createdat"
+          }
+          if (hasUpdatedAt) {
+            selectClause += ', updated_at as updatedat'
+          } else {
+            selectClause += ", CURRENT_TIMESTAMP as updatedat"
+          }
+
+          this.db.exec(`INSERT INTO deck_new (id, name, is_opponent, active, createdat, updatedat) SELECT ${selectClause} FROM deck`)
         }
-        if (hasCreatedAt) {
-          selectClause += ', created_at as createdat'
-        } else {
-          selectClause += ", CURRENT_TIMESTAMP as createdat"
+
+        // Migrate duel table
+        if (hasOldDuelSchema) {
+          console.log('Migrating duel table from legacy schema...')
+
+          // Create new duel table
+          this.db.exec(`
+            CREATE TABLE IF NOT EXISTS duel_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              deck_id INTEGER NOT NULL,
+              opponent_deck_id INTEGER NOT NULL,
+              is_win INTEGER NOT NULL,
+              game_mode TEXT NOT NULL CHECK(game_mode IN ('RANK', 'RATE', 'EVENT', 'DC')) DEFAULT 'RANK',
+              rank INTEGER,
+              rate_value REAL,
+              dc_value INTEGER,
+              won_coin_toss INTEGER NOT NULL,
+              is_going_first INTEGER NOT NULL,
+              played_date TEXT NOT NULL,
+              notes TEXT,
+              create_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              update_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (deck_id) REFERENCES deck(id),
+              FOREIGN KEY (opponent_deck_id) REFERENCES deck(id)
+            )
+          `)
+
+          // Build select clause based on available columns
+          const hasPlayerDeckId = duelColumnNames.includes('player_deck_id')
+          const hasDeckId = duelColumnNames.includes('deck_id')
+          const hasResult = duelColumnNames.includes('result')
+          const hasIsWin = duelColumnNames.includes('is_win')
+          const hasRankValue = duelColumnNames.includes('rank_value')
+          const hasRank = duelColumnNames.includes('rank')
+          const hasCoinResult = duelColumnNames.includes('coin_result')
+          const hasWonCoinToss = duelColumnNames.includes('won_coin_toss')
+          const hasTurnOrder = duelColumnNames.includes('turn_order')
+          const hasIsGoingFirst = duelColumnNames.includes('is_going_first')
+          const hasPlayedAt = duelColumnNames.includes('played_at')
+          const hasPlayedDate = duelColumnNames.includes('played_date')
+          const hasCreatedAt = duelColumnNames.includes('created_at')
+          const hasCreateDate = duelColumnNames.includes('create_date')
+          const hasUpdatedAt = duelColumnNames.includes('updated_at')
+          const hasUpdateDate = duelColumnNames.includes('update_date')
+
+          // deck_id mapping
+          const deckIdExpr = hasPlayerDeckId ? 'player_deck_id' : (hasDeckId ? 'deck_id' : '0')
+
+          // is_win mapping (result='win' -> 1, result='loss' -> 0)
+          const isWinExpr = hasResult
+            ? "CASE WHEN result = 'win' THEN 1 ELSE 0 END"
+            : (hasIsWin ? 'is_win' : '0')
+
+          // rank mapping
+          const rankExpr = hasRankValue ? 'rank_value' : (hasRank ? 'rank' : 'NULL')
+
+          // won_coin_toss mapping (coin_result='win' -> 1, coin_result='loss' -> 0)
+          const wonCoinTossExpr = hasCoinResult
+            ? "CASE WHEN coin_result = 'win' THEN 1 ELSE 0 END"
+            : (hasWonCoinToss ? 'won_coin_toss' : '0')
+
+          // is_going_first mapping (turn_order='first' -> 1, turn_order='second' -> 0)
+          const isGoingFirstExpr = hasTurnOrder
+            ? "CASE WHEN turn_order = 'first' THEN 1 ELSE 0 END"
+            : (hasIsGoingFirst ? 'is_going_first' : '0')
+
+          // played_date mapping
+          const playedDateExpr = hasPlayedAt ? 'played_at' : (hasPlayedDate ? 'played_date' : 'CURRENT_TIMESTAMP')
+
+          // create_date mapping
+          const createDateExpr = hasCreatedAt ? 'created_at' : (hasCreateDate ? 'create_date' : 'CURRENT_TIMESTAMP')
+
+          // update_date mapping
+          const updateDateExpr = hasUpdatedAt ? 'updated_at' : (hasUpdateDate ? 'update_date' : 'CURRENT_TIMESTAMP')
+
+          const insertSql = `
+            INSERT INTO duel_new (
+              id, deck_id, opponent_deck_id, is_win, game_mode,
+              rank, rate_value, dc_value, won_coin_toss, is_going_first,
+              played_date, notes, create_date, update_date
+            )
+            SELECT
+              id,
+              ${deckIdExpr} as deck_id,
+              opponent_deck_id,
+              ${isWinExpr} as is_win,
+              COALESCE(game_mode, 'RANK') as game_mode,
+              ${rankExpr} as rank,
+              rate_value,
+              dc_value,
+              ${wonCoinTossExpr} as won_coin_toss,
+              ${isGoingFirstExpr} as is_going_first,
+              ${playedDateExpr} as played_date,
+              notes,
+              ${createDateExpr} as create_date,
+              ${updateDateExpr} as update_date
+            FROM duel
+          `
+
+          this.db.exec(insertSql)
         }
-        if (hasUpdatedAt) {
-          selectClause += ', updated_at as updatedat'
-        } else {
-          selectClause += ", CURRENT_TIMESTAMP as updatedat"
+
+        if (hasOldDuelSchema) {
+          this.db.exec('DROP TABLE duel')
         }
 
-        this.db.exec(`INSERT INTO deck_new (id, name, is_opponent, active, createdat, updatedat) SELECT ${selectClause} FROM deck`)
-        this.db.exec('DROP TABLE deck')
-        this.db.exec('ALTER TABLE deck_new RENAME TO deck')
-      }
+        if (hasOldDeckSchema) {
+          this.db.exec('DROP TABLE deck')
+          this.db.exec('ALTER TABLE deck_new RENAME TO deck')
+        }
 
-      // Migrate duel table
-      if (hasOldDuelSchema) {
-        console.log('Migrating duel table from legacy schema...')
-
-        // Create new duel table
-        this.db.exec(`
-          CREATE TABLE IF NOT EXISTS duel_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            deck_id INTEGER NOT NULL,
-            opponent_deck_id INTEGER NOT NULL,
-            is_win INTEGER NOT NULL,
-            game_mode TEXT NOT NULL CHECK(game_mode IN ('RANK', 'RATE', 'EVENT', 'DC')) DEFAULT 'RANK',
-            rank INTEGER,
-            rate_value REAL,
-            dc_value INTEGER,
-            won_coin_toss INTEGER NOT NULL,
-            is_going_first INTEGER NOT NULL,
-            played_date TEXT NOT NULL,
-            notes TEXT,
-            create_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            update_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (deck_id) REFERENCES deck(id),
-            FOREIGN KEY (opponent_deck_id) REFERENCES deck(id)
-          )
-        `)
-
-        // Build select clause based on available columns
-        const hasPlayerDeckId = duelColumnNames.includes('player_deck_id')
-        const hasDeckId = duelColumnNames.includes('deck_id')
-        const hasResult = duelColumnNames.includes('result')
-        const hasIsWin = duelColumnNames.includes('is_win')
-        const hasRankValue = duelColumnNames.includes('rank_value')
-        const hasRank = duelColumnNames.includes('rank')
-        const hasCoinResult = duelColumnNames.includes('coin_result')
-        const hasWonCoinToss = duelColumnNames.includes('won_coin_toss')
-        const hasTurnOrder = duelColumnNames.includes('turn_order')
-        const hasIsGoingFirst = duelColumnNames.includes('is_going_first')
-        const hasPlayedAt = duelColumnNames.includes('played_at')
-        const hasPlayedDate = duelColumnNames.includes('played_date')
-        const hasCreatedAt = duelColumnNames.includes('created_at')
-        const hasCreateDate = duelColumnNames.includes('create_date')
-        const hasUpdatedAt = duelColumnNames.includes('updated_at')
-        const hasUpdateDate = duelColumnNames.includes('update_date')
-
-        // deck_id mapping
-        const deckIdExpr = hasPlayerDeckId ? 'player_deck_id' : (hasDeckId ? 'deck_id' : '0')
-
-        // is_win mapping (result='win' -> 1, result='loss' -> 0)
-        const isWinExpr = hasResult
-          ? "CASE WHEN result = 'win' THEN 1 ELSE 0 END"
-          : (hasIsWin ? 'is_win' : '0')
-
-        // rank mapping
-        const rankExpr = hasRankValue ? 'rank_value' : (hasRank ? 'rank' : 'NULL')
-
-        // won_coin_toss mapping (coin_result='win' -> 1, coin_result='loss' -> 0)
-        const wonCoinTossExpr = hasCoinResult
-          ? "CASE WHEN coin_result = 'win' THEN 1 ELSE 0 END"
-          : (hasWonCoinToss ? 'won_coin_toss' : '0')
-
-        // is_going_first mapping (turn_order='first' -> 1, turn_order='second' -> 0)
-        const isGoingFirstExpr = hasTurnOrder
-          ? "CASE WHEN turn_order = 'first' THEN 1 ELSE 0 END"
-          : (hasIsGoingFirst ? 'is_going_first' : '0')
-
-        // played_date mapping
-        const playedDateExpr = hasPlayedAt ? 'played_at' : (hasPlayedDate ? 'played_date' : 'CURRENT_TIMESTAMP')
-
-        // create_date mapping
-        const createDateExpr = hasCreatedAt ? 'created_at' : (hasCreateDate ? 'create_date' : 'CURRENT_TIMESTAMP')
-
-        // update_date mapping
-        const updateDateExpr = hasUpdatedAt ? 'updated_at' : (hasUpdateDate ? 'update_date' : 'CURRENT_TIMESTAMP')
-
-        const insertSql = `
-          INSERT INTO duel_new (
-            id, deck_id, opponent_deck_id, is_win, game_mode,
-            rank, rate_value, dc_value, won_coin_toss, is_going_first,
-            played_date, notes, create_date, update_date
-          )
-          SELECT
-            id,
-            ${deckIdExpr} as deck_id,
-            opponent_deck_id,
-            ${isWinExpr} as is_win,
-            COALESCE(game_mode, 'RANK') as game_mode,
-            ${rankExpr} as rank,
-            rate_value,
-            dc_value,
-            ${wonCoinTossExpr} as won_coin_toss,
-            ${isGoingFirstExpr} as is_going_first,
-            ${playedDateExpr} as played_date,
-            notes,
-            ${createDateExpr} as create_date,
-            ${updateDateExpr} as update_date
-          FROM duel
-        `
-
-        this.db.exec(insertSql)
-        this.db.exec('DROP TABLE duel')
-        this.db.exec('ALTER TABLE duel_new RENAME TO duel')
+        if (hasOldDuelSchema) {
+          this.db.exec('ALTER TABLE duel_new RENAME TO duel')
+        }
 
         // Recreate indexes
         this.db.exec(`
@@ -302,14 +316,22 @@ export class Database {
           CREATE INDEX IF NOT EXISTS idx_duel_deck_id ON duel(deck_id);
           CREATE INDEX IF NOT EXISTS idx_duel_opponent_deck_id ON duel(opponent_deck_id);
         `)
+
+        // Update schema version
+        this.db.prepare('UPDATE schema_version SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(CURRENT_SCHEMA_VERSION)
+      })
+
+      migrate()
+
+      const foreignKeyViolations = this.db.pragma('foreign_key_check') as Array<unknown>
+      if (foreignKeyViolations.length > 0) {
+        throw new Error(`Foreign key check failed after legacy migration (${foreignKeyViolations.length} violation(s))`)
       }
 
-      // Update schema version
-      this.db.prepare('UPDATE schema_version SET version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1').run(CURRENT_SCHEMA_VERSION)
-    })
-
-    migrate()
-    console.log('Legacy schema migration completed successfully')
+      console.log('Legacy schema migration completed successfully')
+    } finally {
+      this.db.pragma(`foreign_keys = ${previousForeignKeyState ? 'ON' : 'OFF'}`)
+    }
   }
 
   private migrateFromV1ToV2() {
