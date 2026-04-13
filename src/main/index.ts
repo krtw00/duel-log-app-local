@@ -9,11 +9,49 @@ app.disableHardwareAcceleration()
 
 let mainWindow: BrowserWindow | null = null
 let database: Database
+let logFilePath: string | null = null
+
+function formatError(error: unknown) {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}\n${error.stack || ''}`.trim()
+  }
+  return String(error)
+}
+
+function writeLog(level: 'INFO' | 'ERROR' | 'WARN', message: string, error?: unknown) {
+  const timestamp = new Date().toISOString()
+  const detail = error ? `\n${formatError(error)}` : ''
+  const line = `[${timestamp}] [${level}] ${message}${detail}\n`
+
+  if (level === 'ERROR') {
+    console.error(message, error)
+  } else if (level === 'WARN') {
+    console.warn(message, error)
+  } else {
+    console.log(message, error ?? '')
+  }
+
+  if (!logFilePath) return
+
+  try {
+    fs.appendFileSync(logFilePath, line, 'utf-8')
+  } catch (writeError) {
+    console.error('Failed to write startup log', writeError)
+  }
+}
+
+function initLogging() {
+  const logsPath = app.getPath('logs')
+  fs.mkdirSync(logsPath, { recursive: true })
+  logFilePath = path.join(logsPath, 'main.log')
+  writeLog('INFO', `Startup log initialized at ${logFilePath}`)
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -23,16 +61,38 @@ function createWindow() {
     title: 'Duel Log App'
   })
 
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore()
+    }
+    mainWindow.show()
+    mainWindow.focus()
+    writeLog('INFO', 'Main window shown')
+  })
+
+  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    writeLog('ERROR', `Renderer failed to load (${errorCode}) ${validatedURL}: ${errorDescription}`)
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_, details) => {
+    writeLog('ERROR', `Renderer process gone: ${details.reason}`)
+  })
+
   // In development, Vite dev server URL is set by vite-plugin-electron
   if (process.env.VITE_DEV_SERVER_URL) {
+    writeLog('INFO', `Loading renderer from dev server: ${process.env.VITE_DEV_SERVER_URL}`)
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
     mainWindow.webContents.openDevTools()
   } else {
     // Production mode - load from built files
-    mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'))
+    const indexPath = path.join(__dirname, '../../dist/index.html')
+    writeLog('INFO', `Loading renderer from file: ${indexPath}`)
+    mainWindow.loadFile(indexPath)
   }
 
   mainWindow.on('closed', () => {
+    writeLog('INFO', 'Main window closed')
     mainWindow = null
   })
 }
@@ -41,29 +101,50 @@ function createWindow() {
 function initDatabase() {
   const userDataPath = app.getPath('userData')
   const dbPath = path.join(userDataPath, 'duel-log.db')
+  writeLog('INFO', `Initializing database at ${dbPath}`)
   database = new Database(dbPath)
-  console.log('Database initialized at:', dbPath)
+  writeLog('INFO', `Database initialized at ${dbPath}`)
 }
 
 // App lifecycle
+process.on('uncaughtException', (error) => {
+  writeLog('ERROR', 'Uncaught exception in main process', error)
+  if (app.isReady()) {
+    dialog.showErrorBox('Duel Log App startup error', formatError(error))
+  }
+})
+
+process.on('unhandledRejection', (reason) => {
+  writeLog('ERROR', 'Unhandled rejection in main process', reason)
+})
+
 app.whenReady().then(() => {
+  initLogging()
+  writeLog('INFO', 'Application is ready')
   initDatabase()
   createWindow()
 
   app.on('activate', () => {
+    writeLog('INFO', 'App activated')
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
     }
   })
+}).catch((error) => {
+  writeLog('ERROR', 'Startup failed before window creation', error)
+  dialog.showErrorBox('Duel Log App startup error', formatError(error))
+  app.exit(1)
 })
 
 app.on('window-all-closed', () => {
+  writeLog('INFO', 'All windows closed')
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
 
 app.on('before-quit', () => {
+  writeLog('INFO', 'Application is quitting')
   if (database) {
     database.close()
   }
