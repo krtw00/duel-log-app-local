@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { Database } from './database'
+import { deckToLegacy, duelToLegacy } from './legacyAdapters'
 
 // Disable GPU hardware acceleration to reduce GPU usage
 // This must be called before app is ready
@@ -163,15 +164,16 @@ ipcMain.handle('user:update', async (_, userData) => {
 
 // Deck operations
 ipcMain.handle('decks:getAll', async () => {
-  return database.getAllDecks()
+  const decks = database.getAllDecks() as any[]
+  return decks.map(deckToLegacy)
 })
 
 ipcMain.handle('decks:create', async (_, deckData) => {
-  return database.createDeck(deckData)
+  return deckToLegacy(database.createDeck(deckData) as any)
 })
 
 ipcMain.handle('decks:update', async (_, id, deckData) => {
-  return database.updateDeck(id, deckData)
+  return deckToLegacy(database.updateDeck(id, deckData) as any)
 })
 
 ipcMain.handle('decks:delete', async (_, id) => {
@@ -184,19 +186,20 @@ ipcMain.handle('decks:archive', async () => {
 
 // Duel operations
 ipcMain.handle('duels:getAll', async (_, filters) => {
-  return database.getAllDuels(filters)
+  const duels = database.getAllDuels(filters) as any[]
+  return duels.map(duelToLegacy)
 })
 
 ipcMain.handle('duels:getById', async (_, id) => {
-  return database.getDuelById(id)
+  return duelToLegacy(database.getDuelById(id) as any)
 })
 
 ipcMain.handle('duels:create', async (_, duelData) => {
-  return database.createDuel(duelData)
+  return duelToLegacy(database.createDuel(duelData) as any)
 })
 
 ipcMain.handle('duels:update', async (_, id, duelData) => {
-  return database.updateDuel(id, duelData)
+  return duelToLegacy(database.updateDuel(id, duelData) as any)
 })
 
 ipcMain.handle('duels:delete', async (_, id) => {
