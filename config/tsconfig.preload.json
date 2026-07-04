@@ -1,10 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "module": "commonjs",
     "moduleResolution": "node",
     "allowImportingTsExtensions": false,
     "esModuleInterop": true,
+    "rootDir": "../src/preload",
     "outDir": "../dist-electron/preload",
     "noEmit": false
   },
